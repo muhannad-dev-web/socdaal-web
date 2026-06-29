@@ -1,0 +1,20 @@
+# Xogta Firebase ee gaarka ah - HA gelin GitHub
+firebase-config.js
+
+# Vercel
+.vercel
+.env
+.env.local
+.env*.local
+
+# Node modules iyo logs
+node_modules/
+npm-debug.log*
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+
+# Files-ka OS-ka
+.DS_Store
+Thumbs.db

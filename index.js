@@ -37,6 +37,27 @@ const fv = firebase.firestore.FieldValue;
 const SUPABASE_URL = 'https://zjvulempswddsbwnyykk.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpqdnVsZW1wc3dkZHNid255eWtrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI4Nzc4MjIsImV4cCI6MjA5ODQ1MzgyMn0.Eo2ixIVRtJMZuj6LuJCP4J0dep5Pt4YUOhybrJ0euJs';
 
+// ==================== IMAGE COMPRESSION ====================
+async function compressImage(file, maxWidth = 800, quality = 0.7) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            let w = img.width, h = img.height;
+            if (w > maxWidth) { h = Math.round(h * maxWidth / w); w = maxWidth; }
+            canvas.width = w; canvas.height = h;
+            canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+            canvas.toBlob(blob => {
+                URL.revokeObjectURL(url);
+                resolve(blob || file);
+            }, 'image/jpeg', quality);
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+        img.src = url;
+    });
+}
+
 async function uploadToSupabase(fileBlob, folder, filename) {
     const path = `${folder}/${filename}`;
     const res = await fetch(`${SUPABASE_URL}/storage/v1/object/socdaal-media/${path}`, {
@@ -617,6 +638,17 @@ function switchChat(type, id) {
     activeReplyIndex = null;
     document.getElementById('replyPreviewContainer').classList.add('hidden');
     if (unsubDirectMessages) { unsubDirectMessages(); unsubDirectMessages = null; }
+
+    // Mobile: hide users panel, show messages panel
+    const usersPanel = document.getElementById('chatUsersPanel');
+    const messagesPanel = document.getElementById('chatMessagesPanel');
+    const isDesktop = window.innerWidth >= 1024;
+    if (!isDesktop) {
+        if (usersPanel) usersPanel.classList.add('hidden');
+        if (messagesPanel) { messagesPanel.classList.remove('hidden'); messagesPanel.classList.add('flex'); }
+    } else {
+        if (messagesPanel) { messagesPanel.classList.remove('hidden'); messagesPanel.classList.add('flex'); }
+    }
     
     const activeChatName = document.getElementById('activeChatName');
     const activeChatMeta = document.getElementById('activeChatMeta');
@@ -815,7 +847,8 @@ async function sendImageMessage(base64) {
     showToast('Sawirka waa la dirayo...', true);
     try {
         const fetchRes = await fetch(base64);
-        const blob = await fetchRes.blob();
+        const rawBlob = await fetchRes.blob();
+        const blob = await compressImage(rawBlob, 1200, 0.75);
         const url = await uploadToSupabase(blob, 'chatImages', `${Date.now()}.jpg`);
         const msgData = {
             senderId: currentUser.uid,
@@ -1191,7 +1224,8 @@ function setupProfileDrawer() {
         if (!file) return;
         showLoading('Sawirka la upload gareynayo...');
         try {
-            const url = await uploadToSupabase(file, 'profilePics', currentUser.uid);
+            const compressed = await compressImage(file, 400, 0.75);
+            const url = await uploadToSupabase(compressed, 'profilePics', currentUser.uid);
             await db.collection('users').doc(currentUser.uid).update({ photoURL: url });
             await currentUser.updateProfile({ photoURL: url });
             // Isla markaaba update UI bilaa refresh
@@ -1256,6 +1290,14 @@ function switchTab(tabId) {
     } else if (tabId === 'tabChats') {
         const b = document.getElementById('navBtnChat'); if (b) { b.classList.add('text-brand'); b.classList.remove('text-slate-400'); }
         const d = document.getElementById('deskBtnChat'); if (d) { d.classList.add('bg-brand/10', 'text-brand'); d.classList.remove('text-slate-400'); }
+        // Mobile: show users panel, hide messages panel
+        const isDesktop = window.innerWidth >= 1024;
+        if (!isDesktop) {
+            const usersPanel = document.getElementById('chatUsersPanel');
+            const messagesPanel = document.getElementById('chatMessagesPanel');
+            if (usersPanel) usersPanel.classList.remove('hidden');
+            if (messagesPanel) { messagesPanel.classList.add('hidden'); messagesPanel.classList.remove('flex'); }
+        }
     }
     if (tabId === 'tabAdmin') {
         const d = document.getElementById('deskBtnAdmin'); if (d) { d.classList.add('bg-red-500/10', 'text-red-500'); d.classList.remove('text-slate-400'); }
@@ -1818,6 +1860,14 @@ function setupNavigation() {
     document.getElementById('deskBtnAdmin').addEventListener('click', () => switchTab('tabAdmin'));
     const mobileLogout = document.getElementById('logoutBtnMobile');
     if (mobileLogout) mobileLogout.addEventListener('click', handleLogout);
+    // Back button — messages ka ku noqo users panel-ka
+    const backBtn = document.getElementById('backToUsersBtn');
+    if (backBtn) backBtn.addEventListener('click', () => {
+        const usersPanel = document.getElementById('chatUsersPanel');
+        const messagesPanel = document.getElementById('chatMessagesPanel');
+        if (usersPanel) usersPanel.classList.remove('hidden');
+        if (messagesPanel) { messagesPanel.classList.add('hidden'); messagesPanel.classList.remove('flex'); }
+    });
 }
 
 // ==================== WINDOW LOAD ====================

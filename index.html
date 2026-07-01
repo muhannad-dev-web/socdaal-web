@@ -563,10 +563,11 @@
             </section>
 
             <!-- ================= TAB 3: CHATS, GROUPS & FRIENDS ================= -->
-            <section id="tabChats" class="space-y-6 hidden">
+            <section id="tabChats" class="hidden">
+                <!-- Mobile: two panels toggled, Desktop: grid -->
                 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <!-- Left Sidebar: Friends list, Create Group & Follow Requests trigger button -->
-                    <div class="space-y-4">
+                    <!-- Left Sidebar: Friends list -->
+                    <div id="chatUsersPanel" class="space-y-4">
                         <div class="bg-white dark:bg-darkCard p-4 rounded-2xl border border-brand/20 shadow-lg space-y-3">
                             <h4 class="font-extrabold text-xs text-brand uppercase tracking-wider flex items-center gap-1.5">
                                 <i class="fa-solid fa-users"></i> <span>Wadahadalka & Saaxiibada</span>
@@ -599,10 +600,14 @@
                     </div>
 
                     <!-- Middle / Main Chat Area -->
-                    <div class="lg:col-span-2 bg-white dark:bg-darkCard rounded-2xl shadow-xl border border-slate-100 dark:border-darkBorder/20 flex flex-col h-[520px] relative">
+                    <div id="chatMessagesPanel" class="hidden lg:flex lg:col-span-2 bg-white dark:bg-darkCard rounded-2xl shadow-xl border border-slate-100 dark:border-darkBorder/20 flex-col h-[520px] relative">
                         <!-- Chat Header -->
                         <div class="p-4 border-b border-slate-100 dark:border-slate-800/80 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/40 rounded-t-2xl">
                             <div class="flex items-center space-x-3">
+                                <!-- Back button (mobile only) -->
+                                <button id="backToUsersBtn" class="lg:hidden p-1.5 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-brand transition mr-1">
+                                    <i class="fa-solid fa-arrow-left text-sm"></i>
+                                </button>
                                 <div id="activeChatAvatar" class="w-9 h-9 rounded-full bg-brand text-white flex items-center justify-center font-bold text-sm">G</div>
                                 <div>
                                     <h4 id="activeChatName" class="font-bold text-xs">Group-ka Guud</h4>

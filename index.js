@@ -12,20 +12,24 @@ const fv = firebase.firestore.FieldValue;
 
 // ==================== SUPABASE STORAGE CONFIG ====================
 const SUPABASE_URL = 'https://zjvulempswddsbwnyykk.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpqdnVsZW1wc3dkZHNid255eWtrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI4Nzc4MjIsImV4cCI6MjA5ODQ1MzgyMn0.Eo2ixIVRtJMZuj6LuJCP4J0dep5Pt4YUOhybrJ0euJs';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpqdnVsZW1wc3dkZHNid255eWtrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI4Nzc4MjIsImV4cCI6MjA5ODQ1MzgyMn0.Eo2ixIVRtJMZuj6LuJCP4J0dep5Pt4YUOhybrJ0euJs';
 
 async function uploadToSupabase(fileBlob, folder, filename) {
     const path = `${folder}/${filename}`;
     const res = await fetch(`${SUPABASE_URL}/storage/v1/object/socdaal-media/${path}`, {
         method: 'POST',
         headers: {
-            'Authorization': `Bearer ${SUPABASE_KEY}`,
+            'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+            'apikey': SUPABASE_ANON_KEY,
             'Content-Type': fileBlob.type || 'application/octet-stream',
             'x-upsert': 'true'
         },
         body: fileBlob
     });
-    if (!res.ok) throw new Error('Upload fashilantay: ' + res.status);
+    if (!res.ok) {
+        const errText = await res.text();
+        throw new Error('Upload fashilantay: ' + res.status + ' ' + errText);
+    }
     return `${SUPABASE_URL}/storage/v1/object/public/socdaal-media/${path}`;
 }
 

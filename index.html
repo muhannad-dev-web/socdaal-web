@@ -1,0 +1,1000 @@
+<!DOCTYPE html>
+<html lang="so" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SOCDAAL - Nidaamka Socodka & Fitness-ka</title>
+    
+    <!-- Favicon oo ah Cagaar iyo Hillaac Cad -->
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='25' fill='%2322c55e'/><path d='M55 25 L35 53 H48 L40 78 L65 50 H52 Z' fill='white'/></svg>">
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Font Awesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Google Font (Inter) -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+
+    <!-- Firebase Compat SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.1); }
+        .dark ::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.6); }
+        ::-webkit-scrollbar-thumb { background: #22c55e; border-radius: 99px; }
+        .drawer-transition {
+            transition: transform 0.3s ease-in-out;
+        }
+        /* Pulse for camera scanning overlay */
+        @keyframes scan {
+            0% { top: 0%; }
+            50% { top: 100%; }
+            100% { top: 0%; }
+        }
+        .scanner-line {
+            animation: scan 3s linear infinite;
+        }
+        /* Loading Spinner */
+        @keyframes spin-loader {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .loader-ring {
+            border: 4px solid rgba(34, 197, 94, 0.15);
+            border-left-color: #22c55e;
+            border-radius: 50%;
+            width: 48px;
+            height: 48px;
+            animation: spin-loader 1s linear infinite;
+        }
+        .loader-pulse {
+            animation: pulse-loader 1.5s ease-in-out infinite;
+        }
+        @keyframes pulse-loader {
+            0%, 100% { opacity: 0.6; transform: scale(1); }
+            50% { opacity: 1; transform: scale(1.05); }
+        }
+    </style>
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: '#22c55e',
+                        darkBg: '#090d16',
+                        darkCard: '#131c2e',
+                        darkBorder: '#1e293b'
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-slate-50 dark:bg-darkBg text-slate-800 dark:text-slate-100 min-h-screen flex flex-col transition-colors duration-300 pb-20 md:pb-0">
+
+    <!-- Custom Toast Box -->
+    <div id="toast" class="fixed top-5 right-5 z-50 transform translate-y-[-150%] transition-transform duration-300 bg-slate-900 text-white border border-brand/40 px-5 py-3 rounded-xl shadow-2xl flex items-center space-x-3 text-sm">
+        <i id="toastIcon" class="fa-solid fa-circle-check text-brand text-lg"></i>
+        <span id="toastMsg">Farriinta halkan ayay ku soo baxaysaa</span>
+    </div>
+
+    <!-- ================= AUTH VIEW ================= -->
+    <div id="authView" class="flex-grow flex flex-col justify-between p-4">
+        <header class="p-4 flex justify-between items-center max-w-6xl w-full mx-auto">
+            <div class="flex items-center space-x-2.5">
+                <div class="text-brand flex items-center justify-center">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                    </svg>
+                </div>
+                <span class="text-2xl font-black tracking-wider text-brand">SOCDAAL</span>
+            </div>
+            
+            <div class="flex items-center space-x-3">
+                <button id="adminLoginBtn" class="text-xs bg-slate-200 dark:bg-darkCard hover:bg-slate-300 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 px-3 py-1.5 rounded-lg font-bold transition">
+                    <i class="fa-solid fa-user-shield mr-1"></i> Admin Login
+                </button>
+                <button id="themeToggleAuth" class="p-2 rounded-xl bg-slate-200 dark:bg-darkCard hover:ring-2 hover:ring-brand/40 transition">
+                    <i id="themeIconAuth" class="fa-solid fa-moon text-slate-800 dark:text-brand text-lg"></i>
+                </button>
+            </div>
+        </header>
+
+        <main class="flex-grow flex items-center justify-center p-4">
+            <!-- User Login/Register Card -->
+            <div id="userAuthCard" class="bg-white dark:bg-darkCard p-8 rounded-2xl shadow-2xl w-full max-w-md border border-slate-100 dark:border-darkBorder/30">
+                <div class="flex border-b border-slate-200 dark:border-slate-700/60 mb-6">
+                    <button id="tabSignIn" class="w-1/2 pb-3 text-center font-bold text-brand border-b-2 border-brand transition-all">Sign In</button>
+                    <button id="tabSignUp" class="w-1/2 pb-3 text-center font-bold text-slate-400 border-b-2 border-transparent hover:text-slate-300 transition-all">Sign Up</button>
+                </div>
+
+                <div id="authError" class="hidden bg-red-100 dark:bg-red-950/40 border border-red-400 dark:border-red-900 text-red-700 dark:text-red-400 px-4 py-2.5 rounded-xl mb-4 text-xs">
+                    <i class="fa-solid fa-triangle-exclamation mr-1.5"></i> <span id="authErrorText">Cillad ayaa dhacday!</span>
+                </div>
+
+                <!-- Google Sign-In Button: isla button-ka wuxuu qabanayaa Sign In iyo Sign Up labadaba -->
+                <button id="googleSignInBtn" type="button" class="w-full flex items-center justify-center space-x-3 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 font-bold py-3 rounded-xl transition shadow-sm mb-4">
+                    <svg class="h-5 w-5" viewBox="0 0 48 48">
+                        <path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12c0-6.627,5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24c0,11.045,8.955,20,20,20c11.045,0,20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"/>
+                        <path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"/>
+                        <path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"/>
+                        <path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.571c0.001-0.001,0.002-0.001,0.003-0.002l6.19,5.238C36.971,39.205,44,34,44,24C44,22.659,43.862,21.35,43.611,20.083z"/>
+                    </svg>
+                    <span>Ku Soo Gal / Diiwaan Geli Gmail</span>
+                </button>
+
+                <div class="flex items-center my-4">
+                    <div class="flex-grow border-t border-slate-200 dark:border-slate-700"></div>
+                    <span class="px-3 text-[10px] text-slate-400 font-bold uppercase">Ama</span>
+                    <div class="flex-grow border-t border-slate-200 dark:border-slate-700"></div>
+                </div>
+
+                <form id="signInForm" class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-semibold mb-1 text-slate-600 dark:text-slate-300">Username-kaaga</label>
+                        <input type="text" id="loginUsername" placeholder="Geli username" class="w-full px-4 py-2 bg-transparent border border-slate-300 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-brand focus:outline-none transition text-slate-800 dark:text-slate-100">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold mb-1 text-slate-600 dark:text-slate-300">Password</label>
+                        <input type="password" id="loginPassword" placeholder="••••••••" class="w-full px-4 py-2 bg-transparent border border-slate-300 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-brand focus:outline-none transition text-slate-800 dark:text-slate-100">
+                    </div>
+                    <button type="submit" class="w-full bg-brand text-white font-black py-3 rounded-xl hover:bg-green-600 transition shadow-lg shadow-brand/20">Soo gal</button>
+                </form>
+
+                <form id="signUpForm" class="space-y-4 hidden">
+                    <div>
+                        <label class="block text-xs font-semibold mb-1 text-slate-600 dark:text-slate-300">Dooro Username</label>
+                        <input type="text" id="regUsername" placeholder="Tusaale: mohamed01" class="w-full px-4 py-2 bg-transparent border border-slate-300 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-brand focus:outline-none transition text-slate-800 dark:text-slate-100">
+                        <p class="text-[10px] text-slate-400 mt-1">Magaca ma yeelan karo wax boos (space) ah.</p>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold mb-1 text-slate-600 dark:text-slate-300">Password</label>
+                        <input type="password" id="regPassword" placeholder="Ugu yaraan 6 xaraf" class="w-full px-4 py-2 bg-transparent border border-slate-300 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-brand focus:outline-none transition text-slate-800 dark:text-slate-100">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold mb-1 text-slate-600 dark:text-slate-300">Wadankaaga (Country)</label>
+                        <select id="regCountry" class="w-full px-4 py-2 bg-white dark:bg-darkCard border border-slate-300 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-brand focus:outline-none transition text-slate-800 dark:text-slate-100">
+                            <option value="Somalia">🇸🇴 Somalia</option>
+                            <option value="Kenya">🇰🇪 Kenya</option>
+                            <option value="Ethiopia">🇪🇹 Ethiopia</option>
+                            <option value="Djibouti">🇩🇯 Djibouti</option>
+                            <option value="USA">🇺🇸 USA</option>
+                            <option value="UK">🇬🇧 UK</option>
+                            <option value="Canada">🇨🇦 Canada</option>
+                            <option value="UAE">🇦🇪 UAE</option>
+                            <option value="Other">🌍 Kale (Other)</option>
+                        </select>
+                    </div>
+                    <button type="submit" class="w-full bg-brand text-white font-black py-3 rounded-xl hover:bg-green-600 transition shadow-lg shadow-brand/20">Abuur Account</button>
+                </form>
+            </div>
+
+            <!-- Admin Login Card -->
+            <div id="adminAuthCard" class="hidden bg-white dark:bg-darkCard p-8 rounded-2xl shadow-2xl w-full max-w-md border border-red-500/30">
+                <div class="flex justify-between items-center mb-6">
+                    <h3 class="text-lg font-black text-red-500 flex items-center space-x-2">
+                        <i class="fa-solid fa-user-shield"></i>
+                        <span>Admin Authorization</span>
+                    </h3>
+                    <button id="backToUserAuth" class="text-xs text-slate-400 hover:text-slate-100 font-bold">Ku laabo User</button>
+                </div>
+
+                <form id="adminForm" class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-semibold mb-1">Admin Username</label>
+                        <input type="text" id="adminUser" placeholder="Geli Admin Name" class="w-full px-4 py-2 bg-transparent border border-slate-300 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-red-500 focus:outline-none transition text-slate-800 dark:text-slate-100">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold mb-1">Admin Password</label>
+                        <input type="password" id="adminPass" placeholder="••••••••" class="w-full px-4 py-2 bg-transparent border border-slate-300 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-red-500 focus:outline-none transition text-slate-800 dark:text-slate-100">
+                    </div>
+                    <button type="submit" class="w-full bg-red-600 hover:bg-red-700 text-white font-black py-3 rounded-xl transition shadow-lg shadow-red-600/20">Authorized Entrance</button>
+                </form>
+            </div>
+        </main>
+    </div>
+
+    <!-- ================= PORTAL VIEW ================= -->
+    <div id="portalView" class="hidden flex-grow flex flex-col min-h-screen">
+        <!-- Top Sticky Header -->
+        <header class="bg-white dark:bg-darkCard border-b border-slate-200 dark:border-darkBorder/30 p-4 sticky top-0 z-40 transition-colors">
+            <div class="max-w-6xl mx-auto flex justify-between items-center bg-transparent">
+                <div class="flex items-center space-x-3">
+                    <div class="text-brand flex items-center justify-center">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                    </div>
+                    <span class="text-xl font-black tracking-wider text-brand">SOCDAAL</span>
+                </div>
+
+                <div class="flex items-center space-x-3">
+                    <!-- Live Search Bar inside Navbar (Yar) -->
+                    <div class="relative" id="navSearchWrapper">
+                        <input type="text" id="navSearchInput" placeholder="Raadi isticmaale..." class="pl-8 pr-3 py-1.5 w-36 sm:w-48 text-xs bg-slate-100 dark:bg-slate-800 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand text-slate-800 dark:text-slate-100 transition-all">
+                        <i class="fa-solid fa-magnifying-glass absolute left-2.5 top-2.5 text-slate-400 text-[10px]"></i>
+                    </div>
+
+                    <button id="themeTogglePortal" class="p-2 rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-brand transition">
+                        <i id="themeIconPortal" class="fa-solid fa-moon"></i>
+                    </button>
+
+                    <!-- Profile Circle Trigger Box with smooth drawer slide -->
+                    <button id="profileDrawerBtn" class="w-8 h-8 rounded-full border border-brand/50 bg-slate-200 dark:bg-slate-800 overflow-hidden flex items-center justify-center cursor-pointer hover:scale-105 transition" title="My Profile Settings">
+                        <img id="navProfileImg" src="https://placehold.co/100x100/22c55e/ffffff?text=U" class="w-full h-full object-cover hidden" alt="Profile">
+                        <span id="navProfileInitial" class="text-xs font-black text-brand uppercase">U</span>
+                    </button>
+
+                    <button id="logoutBtn" class="text-xs bg-red-500/10 hover:bg-red-500/20 text-red-500 px-3 py-1.5 rounded-lg font-bold transition">
+                        <i class="fa-solid fa-right-from-bracket"></i>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Body Area -->
+        <main class="flex-grow p-4 md:p-8 max-w-6xl mx-auto w-full md:pl-24">
+            
+            <!-- SEARCH RESULTS FLOATER -->
+            <div id="navSearchResults" class="hidden bg-white dark:bg-darkCard p-4 rounded-xl border border-brand/30 mb-6 flex items-center justify-between shadow-lg">
+                <div class="flex items-center space-x-3">
+                    <div id="navSearchAvatar" class="w-8 h-8 rounded-full bg-brand/10 text-brand flex items-center justify-center font-bold text-xs">U</div>
+                    <div>
+                        <h4 id="navSearchName" class="font-bold text-xs">Mohamed</h4>
+                        <p id="navSearchSteps" class="text-[10px] text-slate-400">0 steps</p>
+                    </div>
+                </div>
+                <div class="flex space-x-2 items-center">
+                    <button id="navSearchFollowBtn" class="bg-brand text-white text-[10px] font-bold px-3 py-1.5 rounded-lg hover:bg-green-600 transition">Follow</button>
+                    <button id="navSearchMessageBtn" class="bg-slate-200 dark:bg-slate-800 text-slate-800 dark:text-slate-100 text-[10px] font-bold px-3 py-1.5 rounded-lg hover:bg-slate-300 dark:hover:bg-slate-700 transition">
+                        <i class="fa-solid fa-comment-dots mr-1"></i> Fariin u Dir
+                    </button>
+                    <button id="navSearchClose" class="text-xs text-slate-400 hover:text-white px-2">X</button>
+                </div>
+            </div>
+
+            <!-- ================= TAB 1: SOCODKA (WALK & MOTION SENSOR - PRIMARY) ================= -->
+            <section id="tabSocodka" class="space-y-6">
+                <!-- REAL SENSOR SECTION (DEVICEMOTIONEVENT) - PLACED AT THE VERY TOP -->
+                <div class="bg-white dark:bg-darkCard p-6 rounded-2xl shadow-xl border border-slate-100 dark:border-darkBorder/20 text-center space-y-4">
+                    <h3 class="text-lg font-bold flex items-center justify-center space-x-2">
+                        <i class="fa-solid fa-mobile-screen-button text-brand"></i>
+                        <span>Dareemaha Socodka ee Talefanka (Walk Tracker Sensor)</span>
+                    </h3>
+                    <p class="text-xs text-slate-400 max-w-lg mx-auto">Adeegso gyroscope-ka iyo dardar-geliyaha dhabta ah ee talefankaaga si aad u xisaabiso tallaabooyinka dhabta ah adigoo dhex socda.</p>
+                    
+                    <div class="flex flex-col sm:flex-row justify-center items-center gap-4">
+                        <!-- THE HERO START BUTTON -->
+                        <button id="startMotionBtn" class="bg-brand text-white font-black px-10 py-4 rounded-xl hover:bg-green-600 transition shadow-lg shadow-brand/25 flex items-center space-x-2 text-sm">
+                            <i class="fa-solid fa-play"></i>
+                            <span>BILOW SOCODKA (Real Sensor)</span>
+                        </button>
+                    </div>
+
+                    <div id="sensorStatus" class="hidden text-xs text-brand font-bold animate-pulse">
+                        <i class="fa-solid fa-heart-pulse mr-1"></i> Dareemaha socodka ee dhabta ah waa firfircoonyahay. Tallaabooyinkaaga hadda waa la qabanayaa...
+                    </div>
+
+                    <!-- History Toggle Link -->
+                    <div class="pt-2 flex justify-center space-x-4">
+                        <button id="toggleHistoryBtn" class="text-xs text-brand font-bold hover:underline transition">
+                            <i class="fa-solid fa-clock-rotate-left mr-1"></i> Guji halkan si aad u aragto History-gaaga gaarka ah
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Welcome & Top Metrics Cards (Hidable when History table is showing) -->
+                <div id="socodCardsContainer" class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <!-- Daily Steps -->
+                    <div class="bg-white dark:bg-darkCard p-6 rounded-2xl border border-slate-100 dark:border-darkBorder/20 shadow-xl relative overflow-hidden group">
+                        <div class="absolute -right-4 -bottom-4 text-brand/5 dark:text-brand/10 text-8xl group-hover:scale-110 transition-transform">
+                            <i class="fa-solid fa-shoe-prints"></i>
+                        </div>
+                        <div class="flex items-center space-x-3 text-brand mb-3">
+                            <i class="fa-solid fa-shoe-prints text-lg"></i>
+                            <span class="text-xs font-bold tracking-wider">TALLAABOOYINKA MAANTA</span>
+                        </div>
+                        <h2 class="text-4xl font-black tracking-tight" id="liveSteps">0</h2>
+                        <p class="text-[10px] text-slate-400 mt-1">Xogtaada maanta (Tiradu waxay noqonaysaa eber 12:00-ka habeenimo kasta)</p>
+                    </div>
+
+                    <!-- Distance covered -->
+                    <div class="bg-white dark:bg-darkCard p-6 rounded-2xl border border-slate-100 dark:border-darkBorder/20 shadow-xl relative overflow-hidden group">
+                        <div class="absolute -right-4 -bottom-4 text-blue-500/5 dark:text-blue-500/10 text-8xl group-hover:scale-110 transition-transform">
+                            <i class="fa-solid fa-route"></i>
+                        </div>
+                        <div class="flex items-center space-x-3 text-blue-500 mb-3">
+                            <i class="fa-solid fa-route text-lg"></i>
+                            <span class="text-xs font-bold tracking-wider">MASAAFADA (KM)</span>
+                        </div>
+                        <h2 class="text-4xl font-black tracking-tight" id="liveKm">0.00</h2>
+                        <p class="text-[10px] text-slate-400 mt-1">Masaafada dhabta ah ee aad socotay</p>
+                    </div>
+
+                    <!-- Calories burned -->
+                    <div class="bg-white dark:bg-darkCard p-6 rounded-2xl border border-slate-100 dark:border-darkBorder/20 shadow-xl relative overflow-hidden group">
+                        <div class="absolute -right-4 -bottom-4 text-red-500/5 dark:text-red-500/10 text-8xl group-hover:scale-110 transition-transform">
+                            <i class="fa-solid fa-fire-flame-curved"></i>
+                        </div>
+                        <div class="flex items-center space-x-3 text-red-500 mb-3">
+                            <i class="fa-solid fa-fire-flame-curved text-lg"></i>
+                            <span class="text-xs font-bold tracking-wider">KALOORIYADA GUBTAY</span>
+                        </div>
+                        <h2 class="text-4xl font-black tracking-tight" id="liveCalories">0</h2>
+                        <p class="text-[10px] text-slate-400 mt-1">Kalooriyada gubtay maanta oo idil</p>
+                    </div>
+                </div>
+
+                <!-- Weekly Challenge set by Admin -->
+                <div class="bg-white dark:bg-darkCard p-6 rounded-2xl shadow-xl border border-slate-100 dark:border-darkBorder/20">
+                    <div class="flex justify-between items-start mb-4">
+                        <div>
+                            <h3 class="font-extrabold text-lg flex items-center space-x-2 text-brand">
+                                <i class="fa-solid fa-flag"></i>
+                                <span>Weekly Challenge-ka Toddobaadkan</span>
+                            </h3>
+                            <p class="text-xs text-slate-400" id="weeklyChallengeTitle">Sugaya hadafka cusub ee Admin-ka.</p>
+                        </div>
+                        <span class="bg-brand/10 text-brand text-[10px] font-black px-2.5 py-1 rounded-full uppercase tracking-wider">U-Dhowaansho</span>
+                    </div>
+
+                    <div class="space-y-2">
+                        <div class="flex justify-between text-xs font-bold">
+                            <span id="weeklyProgressText">0 / 0 steps</span>
+                            <span id="weeklyPercentage">0%</span>
+                        </div>
+                        <div class="w-full bg-slate-100 dark:bg-slate-800 h-3 rounded-full overflow-hidden">
+                            <div id="weeklyProgressBar" class="bg-brand h-full transition-all duration-300" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- User History List (Initially Hidden, Toggled via Link) -->
+                <div id="historyTableWrapper" class="hidden bg-white dark:bg-darkCard p-6 rounded-2xl shadow-xl border border-slate-100 dark:border-darkBorder/20 space-y-4">
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-base font-bold flex items-center space-x-2">
+                            <i class="fa-solid fa-calendar-days text-brand"></i>
+                            <span>Taariikhda Socodkaada Maalinlaha ah (Daily History)</span>
+                        </h3>
+                        <button id="closeHistoryTable" class="text-xs text-slate-400 hover:text-slate-100 font-bold">Xir Taariikhda X</button>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse text-xs">
+                            <thead>
+                                <tr class="border-b border-slate-200 dark:border-slate-800 text-slate-400">
+                                    <th class="pb-3 font-semibold">Taariikhda</th>
+                                    <th class="pb-3 font-semibold">Tallaabooyinka</th>
+                                    <th class="pb-3 font-semibold">Masaafada (KM)</th>
+                                    <th class="pb-3 font-semibold text-right">Kalooriyada (kcal)</th>
+                                </tr>
+                            </thead>
+                            <tbody id="userHistoryBody" class="divide-y divide-slate-100 dark:divide-slate-800/40">
+                                <!-- Dynamic daily history rows -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ================= TAB 2: CALCULATOR & REAL CAMERA BODY FAT SCANNER ================= -->
+            <section id="tabCalculator" class="space-y-6 hidden">
+                <!-- Separated Sub-navigation for Calculator Tab (Form, Camera Scan, and Output completely isolated) -->
+                <div class="flex border-b border-slate-200 dark:border-slate-800 mb-6 bg-white dark:bg-darkCard rounded-xl p-1.5 shadow-md">
+                    <button id="calcSubTabForm" class="w-1/3 py-2 text-center text-xs font-bold rounded-lg bg-brand text-white transition-all">
+                        <i class="fa-solid fa-file-medical mr-1"></i> Form-ka Caafimaadka
+                    </button>
+                    <button id="calcSubTabCamera" class="w-1/3 py-2 text-center text-xs font-bold rounded-lg text-slate-400 hover:text-brand transition-all">
+                        <i class="fa-solid fa-camera mr-1"></i> Kamarada Iskaanka
+                    </button>
+                    <button id="calcSubTabOutput" class="w-1/3 py-2 text-center text-xs font-bold rounded-lg text-slate-400 hover:text-brand transition-all">
+                        <i class="fa-solid fa-square-poll-vertical mr-1"></i> Natiijada 8 Usbuuc
+                    </button>
+                </div>
+
+                <!-- SUB-VIEW 1: INPUT FORM -->
+                <div id="calcViewForm" class="bg-white dark:bg-darkCard p-6 rounded-2xl shadow-xl border border-slate-100 dark:border-darkBorder/20 space-y-4">
+                    <h3 class="text-lg font-extrabold text-brand flex items-center gap-1.5">
+                        <i class="fa-solid fa-file-medical"></i> <span>Geli Xogtaada Caafimaad</span>
+                    </h3>
+                    <p class="text-xs text-slate-400">Buuxi foomka hoose si loo falanqeeyo loona dhaliyo saadaasha isbedelka jidhkaaga.</p>
+                    
+                    <form id="calculatorForm" class="space-y-4">
+                        <!-- Gender selection -->
+                        <div>
+                            <label class="block text-xs font-semibold mb-1">Nooca Jinsiga (Gender)</label>
+                            <div class="grid grid-cols-2 gap-3">
+                                <label class="flex items-center justify-center space-x-2 py-2 rounded-xl border border-slate-200 dark:border-slate-800 cursor-pointer hover:border-brand/50 transition">
+                                    <input type="radio" name="gender" value="Male" checked class="accent-brand">
+                                    <span class="text-xs">Lab (Male)</span>
+                                </label>
+                                <label class="flex items-center justify-center space-x-2 py-2 rounded-xl border border-slate-200 dark:border-slate-800 cursor-pointer hover:border-brand/50 transition">
+                                    <input type="radio" name="gender" value="Female" class="accent-brand">
+                                    <span class="text-xs">Dhedig (Female)</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1">Da'daada (Age)</label>
+                                <input type="number" id="calcAge" value="25" min="1" class="w-full px-4 py-2 bg-transparent border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand focus:outline-none text-xs transition">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1">Dhererkaaga (cm)</label>
+                                <input type="number" id="calcHeight" value="175" min="50" class="w-full px-4 py-2 bg-transparent border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand focus:outline-none text-xs transition">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1">Miisaankaaga (kg)</label>
+                                <input type="number" id="calcWeight" value="80" min="20" class="w-full px-4 py-2 bg-transparent border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand focus:outline-none text-xs transition">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1">Xaafadda aad joogto</label>
+                                <select id="calcNeighborhood" class="w-full px-4 py-2 bg-white dark:bg-darkCard border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand focus:outline-none text-xs text-slate-800 dark:text-slate-100 transition">
+                                    <option value="Hodan">Hodan</option>
+                                    <option value="Waaberi">Waaberi</option>
+                                    <option value="Wadajir">Wadajir</option>
+                                    <option value="Huriwaa">Huriwaa</option>
+                                    <option value="Cabdicasiis">Cabdicasiis</option>
+                                    <option value="Kaaraan">Kaaraan</option>
+                                    <option value="Dayniile">Dayniile</option>
+                                    <option value="Hawlwadaag">Hawlwadaag</option>
+                                    <option value="Boondheere">Boondheere</option>
+                                    <option value="Yaaqshiid">Yaaqshiid</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-semibold mb-1">Doorashada Cuntada</label>
+                                <select id="calcFood" class="w-full px-4 py-2 bg-white dark:bg-darkCard border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand focus:outline-none text-xs text-slate-800 dark:text-slate-100 transition">
+                                    <option value="0">Caadi ayaan wax u cunayaa</option>
+                                    <option value="300">-300 Kaloori ayaan dhimayaa</option>
+                                    <option value="500">-500 Kaloori ayaan dhimayaa</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-semibold mb-1">Qorshaha Tallaabooyinka</label>
+                                <select id="calcStepsGoal" class="w-full px-4 py-2 bg-white dark:bg-darkCard border border-slate-200 dark:border-slate-800 rounded-xl focus:ring-2 focus:ring-brand focus:outline-none text-xs text-slate-800 dark:text-slate-100 transition">
+                                    <option value="2000">2,000 steps (Dhexdhexaad)</option>
+                                    <option value="4000">4,000 steps (Soconaya)</option>
+                                    <option value="6000">6,000 steps (Si firfircoon u socda)</option>
+                                    <option value="10000">10,000 steps (Heer sare)</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="w-full bg-brand text-white font-black py-3 rounded-xl hover:bg-green-600 transition shadow-lg shadow-brand/20">XISAABI SAADALASHA 8 USBUUC</button>
+                    </form>
+                </div>
+
+                <!-- SUB-VIEW 2: CAMERA SCANNER -->
+                <div id="calcViewCamera" class="hidden bg-white dark:bg-darkCard p-6 rounded-2xl shadow-xl border border-slate-100 dark:border-darkBorder/20 flex flex-col justify-between">
+                    <div class="mb-4">
+                        <h3 class="text-lg font-extrabold text-brand flex items-center gap-1.5">
+                            <i class="fa-solid fa-camera animate-pulse"></i> <span>Mugga Baruurta (Body Fat Camera Scan)</span>
+                        </h3>
+                        <p class="text-xs text-slate-400 mt-1">Daar kamaradaada dhabta ah si laguu scan-gareeyo loona falanqeeyo baruurta jidhkaaga si gooni ah.</p>
+                    </div>
+
+                    <!-- Video feed view with absolute stack to prevent layout shifting completely -->
+                    <div class="relative w-full h-[320px] bg-slate-950 rounded-xl overflow-hidden border border-slate-200 dark:border-slate-800 flex items-center justify-center">
+                        <video id="cameraVideo" autoplay playsinline class="absolute inset-0 w-full h-full object-cover rounded-xl hidden"></video>
+                        <canvas id="cameraCanvas" class="absolute inset-0 w-full h-full object-cover rounded-xl hidden"></canvas>
+                        
+                        <div id="cameraPlaceholder" class="absolute inset-0 flex flex-col items-center justify-center text-center p-4">
+                            <i class="fa-solid fa-camera-rotate text-5xl text-brand/30 mb-2 animate-bounce"></i>
+                            <p class="text-xs text-slate-400 max-w-[250px]">Daar kamarada dhabta ah si laguu scan-gareeyo baruurtana loo xisaabiyo.</p>
+                        </div>
+
+                        <!-- Scanning grid lines overlay -->
+                        <div id="scannerOverlay" class="hidden absolute inset-0 pointer-events-none border-2 border-brand/20">
+                            <div class="scanner-line absolute left-0 right-0 h-1 bg-brand opacity-60 shadow-lg shadow-brand"></div>
+                            <div class="absolute left-1/2 top-0 bottom-0 w-[1px] bg-brand/10"></div>
+                            <div class="absolute top-1/2 left-0 right-0 h-[1px] bg-brand/10"></div>
+                        </div>
+                    </div>
+
+                    <div class="flex gap-4 mt-4">
+                        <button type="button" id="openCameraBtn" class="flex-grow bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 font-bold py-3 rounded-xl text-xs transition">
+                            <i class="fa-solid fa-video mr-1"></i> Daar Kamarada
+                        </button>
+                        <button type="button" id="capturePhotoBtn" disabled class="flex-grow bg-brand text-white disabled:opacity-50 disabled:cursor-not-allowed font-black py-3 rounded-xl text-xs transition shadow-md shadow-brand/20">
+                            <i class="fa-solid fa-expand mr-1"></i> Scan/Qaad Sawirka
+                        </button>
+                    </div>
+                </div>
+
+                <!-- SUB-VIEW 3: RESULTS & PREDICTIONS -->
+                <div id="calcViewOutput" class="hidden space-y-6">
+                    <div id="calculatorResults" class="bg-white dark:bg-darkCard p-6 rounded-2xl shadow-xl border border-brand/30 space-y-6">
+                        <h4 class="text-lg font-black text-brand flex items-center space-x-2">
+                            <i class="fa-solid fa-chart-line animate-pulse"></i>
+                            <span>Saadaalinta Miisaankaaga ee 8-da Usbuuc</span>
+                        </h4>
+                        <p class="text-xs text-slate-400">Guushaada dhabta ah ee 8-da usbuuc oo ku saleysan sharciga 7700 kcal = 1 kg oo baruur dhimata.</p>
+                        
+                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-4" id="predictionStats">
+                            <!-- Dynamic calculated values appear here -->
+                        </div>
+
+                        <!-- Beautiful simulated chart table -->
+                        <div class="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                            <table class="w-full text-left border-collapse text-xs">
+                                <thead>
+                                    <tr class="bg-slate-100 dark:bg-slate-900 text-slate-400">
+                                        <th class="p-3 font-semibold">Usbuuca</th>
+                                        <th class="p-3 font-semibold">Miisaanka la filayo (kg)</th>
+                                        <th class="p-3 font-semibold">Mugga Baruurta (Body Fat %)</th>
+                                        <th class="p-3 font-semibold">Miisaanka dhimanaya (Total Loss)</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="predictionTableBody" class="divide-y divide-slate-100 dark:divide-slate-800">
+                                    <!-- Table values -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ================= TAB 3: CHATS, GROUPS & FRIENDS ================= -->
+            <section id="tabChats" class="space-y-6 hidden">
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <!-- Left Sidebar: Friends list, Create Group & Follow Requests trigger button -->
+                    <div class="space-y-4">
+                        <div class="bg-white dark:bg-darkCard p-4 rounded-2xl border border-brand/20 shadow-lg space-y-3">
+                            <h4 class="font-extrabold text-xs text-brand uppercase tracking-wider flex items-center gap-1.5">
+                                <i class="fa-solid fa-users"></i> <span>Wadahadalka & Saaxiibada</span>
+                            </h4>
+                            
+                            <!-- Follow requests trigger with red badge -->
+                            <button id="openFollowRequestsBtn" class="w-full flex items-center justify-between p-2.5 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-xl transition text-xs font-bold">
+                                <span class="flex items-center gap-2">
+                                    <i class="fa-solid fa-user-plus animate-bounce"></i>
+                                    <span>Codsiyada Follow-ka (Requests)</span>
+                                </span>
+                                <span id="followBadgeNumber" class="bg-red-500 text-white font-black px-2 py-0.5 rounded-full text-[9px] hidden">0</span>
+                            </button>
+                        </div>
+
+                        <!-- Friends list & groups container sidebar -->
+                        <div class="bg-white dark:bg-darkCard p-5 rounded-2xl shadow-xl border border-slate-100 dark:border-darkBorder/20 space-y-4">
+                            <div class="flex justify-between items-center">
+                                <h3 class="font-extrabold text-sm text-brand">Saaxiibada & Kooxaha</h3>
+                                <button id="openGroupModalBtn" class="bg-brand/10 hover:bg-brand/20 text-brand text-[10px] font-bold px-3 py-1.5 rounded-lg transition flex items-center space-x-1">
+                                    <i class="fa-solid fa-users-medical"></i>
+                                    <span>Abuur Koox</span>
+                                </button>
+                            </div>
+
+                            <div id="friendsList" class="divide-y divide-slate-100 dark:divide-slate-800/40 max-h-[350px] overflow-y-auto">
+                                <!-- Populated with users -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Middle / Main Chat Area -->
+                    <div class="lg:col-span-2 bg-white dark:bg-darkCard rounded-2xl shadow-xl border border-slate-100 dark:border-darkBorder/20 flex flex-col h-[520px] relative">
+                        <!-- Chat Header -->
+                        <div class="p-4 border-b border-slate-100 dark:border-slate-800/80 flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/40 rounded-t-2xl">
+                            <div class="flex items-center space-x-3">
+                                <div id="activeChatAvatar" class="w-9 h-9 rounded-full bg-brand text-white flex items-center justify-center font-bold text-sm">G</div>
+                                <div>
+                                    <h4 id="activeChatName" class="font-bold text-xs">Group-ka Guud</h4>
+                                    <p id="activeChatMeta" class="text-[9px] text-slate-400">Dhammaan saaxiibbada</p>
+                                </div>
+                            </div>
+                            
+                            <!-- Chat Controls (Zoom Sizer + Group Action) -->
+                            <div class="flex items-center space-x-2">
+                                <button id="zoomOutChatBtn" class="p-1.5 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-lg hover:text-brand transition animate-hover" title="Yaree farta">
+                                    <i class="fa-solid fa-magnifying-glass-minus text-[11px]"></i>
+                                </button>
+                                <button id="zoomInChatBtn" class="p-1.5 bg-slate-100 dark:bg-slate-800 text-slate-500 rounded-lg hover:text-brand transition animate-hover" title="Weeynee farta">
+                                    <i class="fa-solid fa-magnifying-glass-plus text-[11px]"></i>
+                                </button>
+                                <button id="leaveChatBtn" class="hidden text-[10px] bg-red-500/10 hover:bg-red-500/20 text-red-500 px-2.5 py-1 rounded-lg font-bold transition">Kooxda ka bax</button>
+                            </div>
+                        </div>
+
+                        <!-- Replying to Header Preview (Collapsible) -->
+                        <div id="replyPreviewContainer" class="hidden px-4 py-2 bg-brand/5 dark:bg-brand/10 border-b border-brand/20 flex justify-between items-center text-xs text-brand">
+                            <div class="truncate pr-4">
+                                <span class="font-bold">U-jawaabid: </span>
+                                <span id="replyPreviewText" class="italic">fariintii halkan...</span>
+                            </div>
+                            <button id="cancelReplyBtn" class="text-xs text-slate-400 hover:text-brand font-black">X</button>
+                        </div>
+
+                        <!-- Messages Box with margin-bottom expanded to avoid tight spacing -->
+                        <div id="messagesContainer" class="flex-grow p-4 overflow-y-auto space-y-6 bg-slate-50/20 dark:bg-slate-950/20" style="font-size: 13px;">
+                            <!-- Populated dynamically with bubbles -->
+                        </div>
+
+                        <!-- Active Input Bar (REAL VOICE, REAL IMAGE UPLOAD & TEXT) -->
+                        <div class="p-4 border-t border-slate-100 dark:border-slate-800/80 bg-slate-50/50 dark:bg-slate-900/40 rounded-b-2xl">
+                            <form id="sendMessageForm" class="flex items-center space-x-2">
+                                <!-- Real Image Input (Hidden) -->
+                                <input type="file" id="imageInput" accept="image/*" class="hidden">
+                                <button type="button" id="triggerImageBtn" class="p-2 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 rounded-xl text-slate-400 hover:text-brand transition">
+                                    <i class="fa-solid fa-camera"></i>
+                                </button>
+
+                                <!-- Real Voice Recording Trigger Button -->
+                                <button type="button" id="triggerVoiceBtn" class="p-2 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 rounded-xl text-slate-400 hover:text-red-500 transition relative" title="Duub Cod dhab ah">
+                                    <i id="voiceIcon" class="fa-solid fa-microphone"></i>
+                                    <span id="recordingIndicator" class="hidden absolute top-0 right-0 w-2 h-2 bg-red-500 rounded-full animate-ping"></span>
+                                </button>
+
+                                <input type="text" id="textMessageInput" placeholder="Farriin ku qor halkan..." class="flex-grow bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-2 text-xs focus:ring-1 focus:ring-brand focus:outline-none transition">
+
+                                <button type="submit" class="p-2.5 bg-brand text-white rounded-xl hover:bg-green-600 transition shadow-md shadow-brand/20">
+                                    <i class="fa-solid fa-paper-plane text-xs"></i>
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Create Group Modal Screen (Overlaid inside Tab) -->
+                <div id="groupModal" class="hidden fixed inset-0 bg-slate-950/80 z-50 flex items-center justify-center p-4">
+                    <div class="bg-white dark:bg-darkCard p-6 rounded-2xl w-full max-w-md border border-brand/20 shadow-2xl">
+                        <div class="flex justify-between items-center mb-4">
+                            <h4 class="font-extrabold text-sm text-brand">Abuurista Koox Cusub</h4>
+                            <button id="closeGroupModal" class="text-slate-400 hover:text-white font-bold">X</button>
+                        </div>
+                        <div class="space-y-4 text-xs">
+                            <div>
+                                <label class="block font-semibold mb-1">Magaca Kooxda (Group Name)</label>
+                                <input type="text" id="newGroupName" placeholder="Tusaale: Socodka Muqdisho" class="w-full px-4 py-2 bg-transparent border border-slate-300 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-1 focus:ring-brand">
+                            </div>
+                            <div>
+                                <label class="block font-semibold mb-1.5">Dooro Saaxiibbada (Ugu yaraan 2 qof oo Follow isku heysta)</label>
+                                <div id="groupFriendsSelection" class="space-y-2 max-h-[150px] overflow-y-auto border border-slate-200 dark:border-slate-800 p-2.5 rounded-xl">
+                                    <!-- Selectable friends list -->
+                                </div>
+                            </div>
+                            <button id="createGroupFinalBtn" class="w-full bg-brand text-white font-black py-2.5 rounded-xl transition">XAQIJI KOOXDA</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Message Interaction Context Popover -->
+                <div id="messageContextMenu" class="hidden fixed inset-0 bg-slate-950/70 z-50 flex items-center justify-center p-4">
+                    <div class="bg-white dark:bg-darkCard p-5 rounded-2xl w-full max-w-xs border border-brand/30 shadow-2xl space-y-4 text-xs">
+                        <h4 class="font-black text-slate-400 uppercase tracking-widest text-center">Fariinta: Samee ficil</h4>
+                        
+                        <div class="space-y-2">
+                            <button id="menuCopyBtn" class="w-full flex items-center space-x-2 p-2.5 bg-slate-100 dark:bg-slate-800 rounded-xl hover:bg-brand/10 transition">
+                                <i class="fa-solid fa-copy text-emerald-500"></i>
+                                <span id="menuCopyLabel">Koobee (Copy)</span>
+                            </button>
+                            <button id="menuCopyImageBtn" class="w-full flex items-center space-x-2 p-2.5 bg-slate-100 dark:bg-slate-800 rounded-xl hover:bg-brand/10 transition hidden">
+                                <i class="fa-solid fa-image text-emerald-500"></i>
+                                <span>Koobee Sawirka (Copy Image)</span>
+                            </button>
+                            <button id="menuReplyBtn" class="w-full flex items-center space-x-2 p-2.5 bg-slate-100 dark:bg-slate-800 rounded-xl hover:bg-brand/10 transition">
+                                <i class="fa-solid fa-reply text-brand"></i>
+                                <span>U-jawaab (Reply)</span>
+                            </button>
+                            <button id="menuForwardBtn" class="w-full flex items-center space-x-2 p-2.5 bg-slate-100 dark:bg-slate-800 rounded-xl hover:bg-brand/10 transition">
+                                <i class="fa-solid fa-share text-blue-500"></i>
+                                <span>U-sii forward garee (Forward)</span>
+                            </button>
+                            <button id="menuDeleteMeBtn" class="w-full flex items-center space-x-2 p-2.5 bg-slate-100 dark:bg-slate-800 rounded-xl hover:bg-brand/10 transition">
+                                <i class="fa-solid fa-eraser text-orange-500"></i>
+                                <span>Iga masax aniga (Delete for me)</span>
+                            </button>
+                            <button id="menuDeleteAllBtn" class="w-full flex items-center space-x-2 p-2.5 bg-red-500/10 text-red-500 rounded-xl hover:bg-red-500/20 transition">
+                                <i class="fa-solid fa-trash-can"></i>
+                                <span>U-tirtir dhammaan (Delete for everyone)</span>
+                            </button>
+                        </div>
+
+                        <button id="closeContextMenuBtn" class="w-full text-slate-400 hover:text-white font-bold py-1 text-center">Xir</button>
+                    </div>
+                </div>
+
+                <!-- Forward Message Destination Modal -->
+                <div id="forwardModal" class="hidden fixed inset-0 bg-slate-950/80 z-55 flex items-center justify-center p-4">
+                    <div class="bg-white dark:bg-darkCard p-5 rounded-2xl w-full max-w-sm border border-brand/30 shadow-2xl space-y-4 text-xs">
+                        <h4 class="font-black text-brand text-sm">Dooro meesha loo forward-gareynayo fariinta</h4>
+                        <div id="forwardTargetsList" class="space-y-2 max-h-[180px] overflow-y-auto border border-slate-200 dark:border-slate-800 p-2 rounded-xl">
+                            <!-- Populated with destinations -->
+                        </div>
+                        <div class="flex gap-2">
+                            <button id="cancelForwardBtn" class="w-1/2 bg-slate-200 dark:bg-slate-800 py-2 rounded-xl text-slate-400 font-bold">Xir</button>
+                            <button id="confirmForwardBtn" class="w-1/2 bg-brand text-white py-2 rounded-xl font-bold">FORWARD</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Follow Requests Dedicated Modal -->
+                <div id="followRequestsModal" class="hidden fixed inset-0 bg-slate-950/80 z-50 flex items-center justify-center p-4">
+                    <div class="bg-white dark:bg-darkCard p-6 rounded-2xl w-full max-w-md border border-brand/30 shadow-2xl space-y-4">
+                        <div class="flex justify-between items-center">
+                            <h3 class="font-extrabold text-sm text-brand flex items-center gap-2">
+                                <i class="fa-solid fa-user-plus"></i>
+                                <span>Codsiyada Follow-ka ee Kugu Socda</span>
+                            </h3>
+                            <button id="closeFollowRequestsModal" class="text-slate-400 hover:text-white font-bold text-sm">Xir X</button>
+                        </div>
+
+                        <div id="followRequestsModalList" class="space-y-3 max-h-[250px] overflow-y-auto border border-slate-200 dark:border-slate-800 p-3 rounded-xl">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ================= IMAGE EDITOR MODAL ================= -->
+            <div id="imageEditorModal" class="hidden fixed inset-0 bg-slate-950/90 z-[70] flex items-center justify-center p-4">
+                <div class="bg-white dark:bg-darkCard p-4 rounded-2xl w-full max-w-lg border border-brand/30 shadow-2xl space-y-3">
+                    <div class="flex justify-between items-center">
+                        <h4 class="font-black text-brand text-sm">Wax ka beddel Sawirka</h4>
+                        <button id="closeImageEditorBtn" class="text-slate-400 hover:text-white font-bold">X</button>
+                    </div>
+                    <div class="relative bg-slate-900 rounded-xl overflow-hidden" style="min-height: 200px;">
+                        <canvas id="editorCanvas" class="w-full object-contain" style="max-height: 350px;"></canvas>
+                        <div id="cropOverlay" class="hidden absolute inset-0 pointer-events-none">
+                            <div id="cropRect" class="absolute border-2 border-brand bg-brand/10" style="left: 20%; top: 20%; width: 60%; height: 60%;"></div>
+                        </div>
+                    </div>
+                    <div class="flex flex-wrap justify-center gap-2">
+                        <button id="editorToolCrop" class="px-3 py-1.5 bg-brand/10 text-brand text-xs font-bold rounded-lg hover:bg-brand/20 transition">Go'i (Crop)</button>
+                        <button id="editorToolText" class="px-3 py-1.5 bg-blue-500/10 text-blue-500 text-xs font-bold rounded-lg hover:bg-blue-500/20 transition">Qor (Text)</button>
+                        <button id="editorToolDraw" class="px-3 py-1.5 bg-purple-500/10 text-purple-500 text-xs font-bold rounded-lg hover:bg-purple-500/20 transition">Draw</button>
+                        <button id="editorToolClear" class="px-3 py-1.5 bg-red-500/10 text-red-500 text-xs font-bold rounded-lg hover:bg-red-500/20 transition">Tirtir</button>
+                    </div>
+                    <div id="editorTextInputArea" class="hidden flex items-center space-x-2">
+                        <input type="text" id="editorTextInput" placeholder="Qor qoraalka halkan..." class="flex-grow px-3 py-1.5 bg-slate-100 dark:bg-slate-800 rounded-lg text-xs border border-slate-300 dark:border-slate-700 text-slate-800 dark:text-slate-100">
+                        <button id="editorApplyTextBtn" class="px-3 py-1.5 bg-blue-500 text-white text-xs font-bold rounded-lg hover:bg-blue-600 transition">Soo dhig</button>
+                    </div>
+                    <div id="editorCropControls" class="hidden flex justify-center gap-2">
+                        <button id="editorApplyCropBtn" class="px-3 py-1.5 bg-brand text-white text-xs font-bold rounded-lg hover:bg-green-600 transition">Go'i (Apply)</button>
+                    </div>
+                    <div class="flex gap-2 pt-2">
+                        <button id="cancelImageEditorBtn" class="w-1/2 bg-slate-200 dark:bg-slate-800 py-2 rounded-xl text-slate-400 font-bold hover:bg-slate-300 dark:hover:bg-slate-700 transition">Ka noqo</button>
+                        <button id="sendEditedImageBtn" class="w-1/2 bg-brand text-white py-2 rounded-xl font-bold hover:bg-green-600 transition">Dir Sawirka</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ================= ADMIN DASHBOARD (MODERN - STRICTLY RESTRICTED) ================= -->
+            <section id="tabAdmin" class="space-y-6 hidden">
+                <!-- Admin Headline & High-Level Stats -->
+                <div>
+                    <h2 class="text-2xl font-black text-red-500 flex items-center space-x-2">
+                        <i class="fa-solid fa-user-shield"></i>
+                        <span>Admin Terminal & Analytics</span>
+                    </h2>
+                    <p class="text-xs text-slate-400 mt-1">Ku dhex maamul nidaamka guud, u ijangoy Weekly Challenge, soona sifee codsiyada.</p>
+                </div>
+
+                <!-- Stats Cards -->
+                <div class="flex items-center justify-between mb-2">
+                    <div class="text-xs text-slate-400">
+                        <span id="adminLastUpdated">Updated: --</span>
+                    </div>
+                    <button id="adminRefreshBtn" class="text-xs bg-red-500/10 hover:bg-red-500/20 text-red-500 px-3 py-1.5 rounded-lg font-bold transition flex items-center space-x-1">
+                        <i class="fa-solid fa-rotate"></i>
+                        <span>Celceli xogta</span>
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div class="bg-white dark:bg-darkCard p-5 rounded-2xl border border-red-500/10 shadow-lg relative">
+                        <span class="text-xs text-slate-400 block font-semibold mb-1">BOOQASHOOYINKA WEB-KA</span>
+                        <h3 class="text-3xl font-black text-slate-900 dark:text-slate-100" id="adminSiteViews">148</h3>
+                        <p class="text-[10px] text-slate-400 mt-1">Page sessions total</p>
+                    </div>
+
+                    <div class="bg-white dark:bg-darkCard p-5 rounded-2xl border border-red-500/10 shadow-lg relative">
+                        <span class="text-xs text-slate-400 block font-semibold mb-1">DIIWANGELINTA (USERS)</span>
+                        <h3 class="text-3xl font-black text-slate-900 dark:text-slate-100" id="adminTotalUsers">0</h3>
+                        <p class="text-[10px] text-slate-400 mt-1">Registered members in system</p>
+                    </div>
+
+                    <div class="bg-white dark:bg-darkCard p-5 rounded-2xl border border-red-500/10 shadow-lg relative">
+                        <span class="text-xs text-slate-400 block font-semibold mb-1">KOOXAHA (GROUPS)</span>
+                        <h3 class="text-3xl font-black text-slate-900 dark:text-slate-100" id="adminTotalGroups">0</h3>
+                        <p class="text-[10px] text-slate-400 mt-1">Active groups</p>
+                    </div>
+
+                    <div class="bg-white dark:bg-darkCard p-5 rounded-2xl border border-red-500/10 shadow-lg relative font-semibold">
+                        <span class="text-xs text-slate-400 block mb-1">WADAMADA LAGA ISTICMAALAYO</span>
+                        <div id="adminCountriesList" class="text-xs text-slate-900 dark:text-slate-100 max-h-[60px] overflow-y-auto">
+                            <!-- Real countries rendered dynamically -->
+                        </div>
+                        <p class="text-[10px] text-slate-400 mt-1">Global platform activity (live)</p>
+                    </div>
+                </div>
+
+                <!-- Write Weekly Challenge Form & Users list -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Set Challenge Form -->
+                    <div class="bg-white dark:bg-darkCard p-6 rounded-2xl shadow-xl border border-slate-100 dark:border-darkBorder/20 space-y-4">
+                        <h4 class="font-extrabold text-sm text-red-500">Dhigo Weekly Challenge Cusub</h4>
+                        <form id="adminChallengeForm" class="space-y-4 text-xs">
+                            <div>
+                                <label class="block font-semibold mb-1">Mawduuca Tartanka (Challenge Title)</label>
+                                <input type="text" id="adminChallengeTitle" value="Tartanka Nabadda & Cafimaadka" class="w-full px-4 py-2.5 bg-transparent border border-slate-300 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-1 focus:ring-red-500 text-slate-800 dark:text-slate-100">
+                            </div>
+                            <div>
+                                <label class="block font-semibold mb-1">Hadafka Tallaabooyinka (Goal Steps)</label>
+                                <input type="number" id="adminChallengeSteps" value="50000" class="w-full px-4 py-2.5 bg-transparent border border-slate-300 dark:border-slate-700 rounded-xl focus:outline-none focus:ring-1 focus:ring-red-500 text-slate-800 dark:text-slate-100">
+                            </div>
+                            <button type="submit" class="w-full bg-red-600 hover:bg-red-700 text-white font-black py-2.5 rounded-xl transition shadow-lg shadow-red-600/15">Sii daa Challenge-ka</button>
+                        </form>
+                    </div>
+
+                    <!-- Platform Activity & Leaderboard -->
+                    <div class="bg-white dark:bg-darkCard p-6 rounded-2xl shadow-xl border border-slate-100 dark:border-darkBorder/20 space-y-4">
+                        <h4 class="font-extrabold text-sm text-brand flex items-center space-x-1.5">
+                            <i class="fa-solid fa-ranking-star"></i>
+                            <span>Nidaamka Qiimaynta (Qofka ugu Isticmaalka Badan)</span>
+                        </h4>
+                        
+                        <div class="overflow-y-auto max-h-[220px] divide-y divide-slate-100 dark:divide-slate-800/40 text-xs" id="adminLeaderboard">
+                            <!-- High performance walkers rendered dynamically -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Admin Moderation Panel: Groups and message purging -->
+                <div class="bg-white dark:bg-darkCard p-6 rounded-2xl shadow-xl border border-slate-100 dark:border-darkBorder/20 space-y-4">
+                    <h4 class="font-extrabold text-sm text-red-500">Xakamaynta Kooxaha (Moderation Tools)</h4>
+                    <div id="adminGroupList" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <!-- Populated with lists of groups to manage -->
+                    </div>
+                </div>
+
+                <!-- Registered Users List (Live Data) -->
+                <div class="bg-white dark:bg-darkCard p-6 rounded-2xl shadow-xl border border-slate-100 dark:border-darkBorder/20 space-y-4">
+                    <h4 class="font-extrabold text-sm text-brand flex items-center space-x-1.5">
+                        <i class="fa-solid fa-users"></i>
+                        <span>Dhammaan Users-ka Is Diiwaangeliyey (<span id="adminUserCountBadge">0</span>)</span>
+                    </h4>
+                    <div class="overflow-y-auto max-h-[300px] text-xs border border-slate-200 dark:border-slate-800 rounded-xl">
+                        <table class="w-full text-left">
+                            <thead class="bg-slate-50 dark:bg-slate-900 sticky top-0">
+                                <tr class="text-[10px] text-slate-400 uppercase">
+                                    <th class="p-3 font-semibold">User</th>
+                                    <th class="p-3 font-semibold">Steps</th>
+                                    <th class="p-3 font-semibold">Weekly</th>
+                                    <th class="p-3 font-semibold">Waddan</th>
+                                    <th class="p-3 font-semibold text-right">Ficil</th>
+                                </tr>
+                            </thead>
+                            <tbody id="adminUserList">
+                                <!-- All users rendered dynamically -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+        </main>
+
+        <!-- ================= USER PROFILE LEFT SLIDING DRAWER ================= -->
+        <div id="userProfileDrawer" class="fixed inset-y-0 left-0 w-80 bg-white dark:bg-darkCard border-r border-slate-200 dark:border-darkBorder/40 z-50 transform -translate-x-full drawer-transition shadow-2xl flex flex-col justify-between p-6">
+            <div class="space-y-6">
+                <div class="flex justify-between items-center">
+                    <h4 class="font-black text-brand text-lg">My Profile Settings</h4>
+                    <button id="closeProfileDrawer" class="text-slate-400 hover:text-slate-900 dark:hover:text-white font-black">X</button>
+                </div>
+
+                <!-- Profile Image Upload Form Section -->
+                <div class="flex flex-col items-center space-y-3">
+                    <div class="w-24 h-24 rounded-full overflow-hidden border-2 border-brand bg-slate-100 dark:bg-slate-800 flex items-center justify-center relative group">
+                        <img id="drawerProfileImg" src="https://placehold.co/150x150/22c55e/ffffff?text=U" class="w-full h-full object-cover hidden" alt="Drawer Profile">
+                        <span id="drawerProfileInitial" class="text-3xl font-black text-brand uppercase">U</span>
+                    </div>
+                    
+                    <input type="file" id="profilePicInput" accept="image/*" class="hidden">
+                    <button id="triggerProfilePicBtn" class="text-xs bg-brand/10 hover:bg-brand/20 text-brand px-3 py-1 rounded-lg font-bold transition">
+                        <i class="fa-solid fa-camera mr-1.5"></i> Bedel Sawirka Profile
+                    </button>
+                </div>
+
+                <!-- Fields to edit -->
+                <div class="space-y-4 text-xs">
+                    <div>
+                        <label class="block font-bold mb-1">Username Cusub</label>
+                        <input type="text" id="editUsername" class="w-full px-3 py-2 bg-transparent border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand text-slate-800 dark:text-slate-100">
+                    </div>
+                    <div>
+                        <label class="block font-bold mb-1">Password Cusub</label>
+                        <input type="password" id="editPassword" placeholder="••••••••" class="w-full px-3 py-2 bg-transparent border border-slate-300 dark:border-slate-700 rounded-lg focus:outline-none focus:ring-1 focus:ring-brand text-slate-800 dark:text-slate-100">
+                    </div>
+                </div>
+            </div>
+
+            <button id="saveProfileChangesBtn" class="w-full bg-brand hover:bg-green-600 text-white font-black py-2.5 rounded-xl transition text-xs">
+                XAQIJI ISBEDELKA
+            </button>
+        </div>
+
+        <!-- Backdrop overlay for Drawer -->
+        <div id="drawerOverlay" class="hidden fixed inset-0 bg-slate-950/60 z-45"></div>
+
+        <!-- ================= MOBILE RESPONSIVE BOTTOM NAVBAR ================= -->
+        <nav class="fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-darkCard border-t border-slate-200 dark:border-darkBorder/40 transition-colors shadow-2xl flex justify-around py-3 md:hidden">
+            <button id="navBtnSocod" class="flex flex-col items-center justify-center space-y-1 text-brand">
+                <i class="fa-solid fa-person-walking text-lg"></i>
+                <span class="text-[10px] font-black">Socodka</span>
+            </button>
+            <button id="navBtnCalc" class="flex flex-col items-center justify-center space-y-1 text-slate-400 hover:text-brand transition">
+                <i class="fa-solid fa-calculator text-lg"></i>
+                <span class="text-[10px] font-black">Xisaabiye</span>
+            </button>
+            <button id="navBtnChat" class="flex flex-col items-center justify-center space-y-1 text-slate-400 hover:text-brand transition relative">
+                <i class="fa-solid fa-comments text-lg"></i>
+                <!-- Red number indicator for chat -->
+                <span id="unreadChatBadge" class="hidden absolute -top-1 right-2 bg-red-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full">0</span>
+                <span class="text-[10px] font-black">Wadahadal</span>
+            </button>
+        </nav>
+
+        <!-- Sidebar layout for Desktop Mode (REORDERED) -->
+        <aside class="hidden md:flex fixed top-16 left-0 bottom-0 w-16 bg-white dark:bg-darkCard border-r border-slate-200 dark:border-darkBorder/40 flex-col items-center py-6 space-y-6 z-30 transition-colors">
+            <button id="deskBtnSocod" class="p-3 rounded-xl bg-brand/10 text-brand relative" title="Walk Sensor & History">
+                <i class="fa-solid fa-person-walking text-xl"></i>
+            </button>
+            <button id="deskBtnCalc" class="p-3 rounded-xl text-slate-400 hover:text-brand" title="Weight Calculator">
+                <i class="fa-solid fa-calculator text-xl"></i>
+            </button>
+            <button id="deskBtnChat" class="p-3 rounded-xl text-slate-400 hover:text-brand relative" title="Chats & Friends">
+                <i class="fa-solid fa-comments text-xl"></i>
+                <span id="deskUnreadBadge" class="hidden absolute top-1 right-1 bg-red-500 text-white text-[8px] font-black px-1.5 py-0.5 rounded-full">0</span>
+            </button>
+            <button id="deskBtnAdmin" class="p-3 rounded-xl text-red-500/80 hover:bg-red-500/10 hidden" title="Admin Control Room">
+                <i class="fa-solid fa-user-shield text-xl"></i>
+            </button>
+        </aside>
+    </div>
+
+    <!-- ================= LOADING OVERLAY ================= -->
+    <div id="loadingOverlay" class="hidden fixed inset-0 z-[60] bg-slate-950/90 backdrop-blur-sm flex flex-col items-center justify-center transition-opacity duration-300">
+        <div class="loader-ring mb-4"></div>
+        <p id="loadingText" class="text-brand font-bold text-sm tracking-wider loader-pulse">LOADING...</p>
+    </div> 
+
+    <!-- ================= JAVASCRIPT SYSTEM ================= -->
+<script>
+        async function bootApp() {
+            try {
+                const res = await fetch('/api/firebase-config');
+                if (!res.ok) throw new Error('Config fetch failed: ' + res.status);
+                window.firebaseConfig = await res.json();
+            } catch (err) {
+                console.error('Khalad ayaa dhacay marka config-ka la soo raray:', err);
+                document.body.innerHTML = '<div style="color:white;text-align:center;padding:50px;font-family:sans-serif;">Khalad ayaa dhacay marka app-ka la furayo. Fadlan dib u isku day.</div>';
+                return;
+            }
+            const script = document.createElement('script');
+            script.src = 'index.js';
+            document.body.appendChild(script);
+        }
+        bootApp();
+    </script>
+
+</body>
+
+
+</body>
+</html>

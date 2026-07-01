@@ -70,6 +70,7 @@ let stepThreshold = 10.5;
 let dbUsersCache = [];
 let dbGroupsCache = [];
 let globalMessagesCache = [];
+let directMessagesCache = [];
 let challengeCache = { title: 'Tartanka Nabadda & Caafimaadka', goal: 50000 };
 let unsubGlobalMessages = null;
 let unsubGroups = null;
@@ -314,13 +315,16 @@ async function handleLogout() {
 auth.onAuthStateChanged(async user => {
     if (user) {
         currentUser = user;
+        // Isla markaaba portal tus — ha suginin Firestore
+        showAuthView(false);
+        hideLoading();
+        // Dibadeed load gareey xogta
         const snap = await db.collection('users').doc(user.uid).get();
         if (snap.exists) {
             currentUserProfile = snap.data();
             if (!currentUserProfile.role) currentUserProfile.role = 'user';
             isAdmin = currentUserProfile.role === 'admin';
         }
-        showAuthView(false);
         updateProfileUI();
         listenToRealtimeData();
         incrementSiteViews();
@@ -331,6 +335,7 @@ auth.onAuthStateChanged(async user => {
         currentUser = null;
         currentUserProfile = null;
         isAdmin = false;
+        hideLoading();
         showAuthView(true);
         detachListeners();
     }
@@ -418,9 +423,9 @@ function listenToDirectMessages(otherUserId) {
     const ids = [me, otherUserId].sort();
     const convoId = ids.join('_');
     unsubDirectMessages = db.collection('directMessages').doc(convoId).collection('messages').orderBy('timestamp', 'asc').onSnapshot(snap => {
-        const msgs = snap.docs.map((d, i) => ({ index: i, id: d.id, ...d.data() }));
+        directMessagesCache = snap.docs.map((d, i) => ({ index: i, id: d.id, ...d.data() }));
         if (activeChatType === 'direct' && activeChatId === otherUserId) {
-            renderMessages(msgs);
+            renderMessages(directMessagesCache);
         }
     });
 }
@@ -750,7 +755,7 @@ async function sendMessage(e) {
 
 async function sendImageMessage(base64) {
     if (!currentUser) return;
-    showLoading('Sawirka la dirayo...');
+    showToast('Sawirka waa la dirayo...', true);
     try {
         const fetchRes = await fetch(base64);
         const blob = await fetchRes.blob();
@@ -783,7 +788,7 @@ async function sendImageMessage(base64) {
 
 async function sendVoiceMessage(blob) {
     if (!currentUser || !blob) return;
-    showLoading('Codka la dirayo...');
+    showToast('Codka waa la dirayo...', true);
     try {
         const url = await uploadToSupabase(blob, 'voiceMessages', `${Date.now()}.webm`);
         const duration = formatVoiceTime(Math.round(blob.size / 1000));
@@ -815,7 +820,7 @@ async function sendVoiceMessage(blob) {
 
 // ==================== CONTEXT MENU & ACTIONS ====================
 function showMessageContextMenu(index) {
-    const msg = activeChatType === 'group' ? globalMessagesCache[index] : null;
+    const msg = activeChatType === 'group' ? globalMessagesCache[index] : directMessagesCache[index];
     if (!msg) return;
     const menu = document.getElementById('messageContextMenu');
     const copyLabel = document.getElementById('menuCopyLabel');
@@ -837,7 +842,7 @@ function hideMessageContextMenu() {
 
 function handleReply(index) {
     activeReplyIndex = index;
-    const msg = activeChatType === 'group' ? globalMessagesCache[index] : null;
+    const msg = activeChatType === 'group' ? globalMessagesCache[index] : directMessagesCache[index];
     if (!msg) return;
     document.getElementById('replyPreviewText').textContent = msg.content.substring(0, 40) + (msg.content.length > 40 ? '...' : '');
     document.getElementById('replyPreviewContainer').classList.remove('hidden');
@@ -845,14 +850,14 @@ function handleReply(index) {
 }
 
 function handleCopy() {
-    const msg = activeChatType === 'group' ? globalMessagesCache[contextMenuIndex] : null;
+    const msg = activeChatType === 'group' ? globalMessagesCache[contextMenuIndex] : directMessagesCache[contextMenuIndex];
     if (!msg) return;
     navigator.clipboard.writeText(msg.content).then(() => showToast('Waa la koobiyay!', true));
     hideMessageContextMenu();
 }
 
 function handleCopyImage() {
-    const msg = activeChatType === 'group' ? globalMessagesCache[contextMenuIndex] : null;
+    const msg = activeChatType === 'group' ? globalMessagesCache[contextMenuIndex] : directMessagesCache[contextMenuIndex];
     if (!msg || msg.messageType !== 'image') return;
     navigator.clipboard.writeText(msg.content).then(() => showToast('Sawirka waa la koobiyay!', true));
     hideMessageContextMenu();
@@ -883,7 +888,7 @@ function handleForward(index) {
 }
 
 async function confirmForward() {
-    const msg = activeChatType === 'group' ? globalMessagesCache[forwardIndex] : null;
+    const msg = activeChatType === 'group' ? globalMessagesCache[forwardIndex] : directMessagesCache[forwardIndex];
     if (!msg) { hideForwardModal(); return; }
     const checkboxes = document.querySelectorAll('.forward-target:checked');
     if (checkboxes.length === 0) { hideForwardModal(); return; }
@@ -931,7 +936,7 @@ function hideForwardModal() {
 }
 
 function handleDeleteForMe(index) {
-    const msg = activeChatType === 'group' ? globalMessagesCache[index] : null;
+    const msg = activeChatType === 'group' ? globalMessagesCache[index] : directMessagesCache[index];
     if (!msg) return;
     hideMessageContextMenu();
     // In a real app, we'd track deletedFor array. For now, just toast.
@@ -939,7 +944,7 @@ function handleDeleteForMe(index) {
 }
 
 async function handleDeleteForAll(index) {
-    const msg = activeChatType === 'group' ? globalMessagesCache[index] : null;
+    const msg = activeChatType === 'group' ? globalMessagesCache[index] : directMessagesCache[index];
     if (!msg || !msg.id) return;
     hideMessageContextMenu();
     showLoading('Tirtiraya...');
@@ -1019,9 +1024,10 @@ async function sendFollowRequest(targetUid) {
 }
 
 async function sendDirectMessageFromSearch(targetUid) {
-    switchChat('direct', targetUid);
     switchTab('tabChats');
-    showToast('Fariin u dir saaxiibka!', true);
+    switchChat('direct', targetUid);
+    document.getElementById('navSearchResults').classList.add('hidden');
+    document.getElementById('navSearchInput').value = '';
 }
 
 // ==================== GROUP CREATION ====================
@@ -1131,7 +1137,14 @@ function setupProfileDrawer() {
             const url = await uploadToSupabase(file, 'profilePics', currentUser.uid);
             await db.collection('users').doc(currentUser.uid).update({ photoURL: url });
             await currentUser.updateProfile({ photoURL: url });
-            updateProfileUI();
+            // Isla markaaba update UI bilaa refresh
+            currentUserProfile.photoURL = url;
+            const navImg = document.getElementById('navProfileImg');
+            const navInitial = document.getElementById('navProfileInitial');
+            const drawerImg = document.getElementById('drawerProfileImg');
+            const drawerInitial = document.getElementById('drawerProfileInitial');
+            navImg.src = url; navImg.classList.remove('hidden'); navInitial.classList.add('hidden');
+            drawerImg.src = url; drawerImg.classList.remove('hidden'); drawerInitial.classList.add('hidden');
             showToast('Sawirka waa la cusbooneysiiyay!', true);
         } catch (err) {
             showToast('Upload fashilantay!', false);
@@ -1746,6 +1759,8 @@ function setupNavigation() {
     document.getElementById('deskBtnCalc').addEventListener('click', () => switchTab('tabCalculator'));
     document.getElementById('deskBtnChat').addEventListener('click', () => switchTab('tabChats'));
     document.getElementById('deskBtnAdmin').addEventListener('click', () => switchTab('tabAdmin'));
+    const mobileLogout = document.getElementById('logoutBtnMobile');
+    if (mobileLogout) mobileLogout.addEventListener('click', handleLogout);
 }
 
 // ==================== WINDOW LOAD ====================

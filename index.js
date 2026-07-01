@@ -22,16 +22,49 @@ window.addEventListener('unhandledrejection', (e) => {
     console.error('Unhandled promise:', e.reason);
     e.preventDefault();
 });
-// ==================== FIREBASE CONFIG ====================
-// Ka akhriso xogta ku dhex jirta window-ka ee uu bootApp() keenay
-const firebaseConfig = window.firebaseConfig;
-const app = firebase.initializeApp(firebaseConfig);
-// Initialize Firebase (Compat API)
 
-const auth = firebase.auth();
-const db = firebase.firestore();
-const storage = firebase.storage();
-const fv = firebase.firestore.FieldValue;
+// ==================== FIREBASE CONFIG ====================
+let app = null;
+let auth = null;
+let db = null;
+let storage = null;
+let fv = null;
+let googleProvider = null;
+
+async function initApp() {
+    let config = window.firebaseConfig;
+
+    // Try fetching from API endpoint if no global config
+    if (!config) {
+        try {
+            const res = await fetch('/api/firebase-config');
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+            config = data;
+        } catch (err) {
+            console.error('Firebase config fetch failed:', err);
+        }
+    }
+
+    if (!config) {
+        console.error('Firebase config ma jiro!');
+        alert('Firebase ma loo diyaarin karo. Fadlan hubi xiriirka.');
+        return false;
+    }
+
+    app = firebase.initializeApp(config);
+    auth = firebase.auth();
+    db = firebase.firestore();
+    storage = firebase.storage();
+    fv = firebase.firestore.FieldValue;
+    googleProvider = new firebase.auth.GoogleAuthProvider();
+
+    await auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(err => {
+        console.error('Persistence error:', err);
+    });
+
+    return true;
+}
 
 // ==================== SUPABASE STORAGE CONFIG ====================
 const SUPABASE_URL = 'https://zjvulempswddsbwnyykk.supabase.co';
@@ -77,18 +110,6 @@ async function uploadToSupabase(fileBlob, folder, filename) {
     return `${SUPABASE_URL}/storage/v1/object/public/socdaal-media/${path}`;
 }
 
-
-
-
-// Google Auth Provider
-const googleProvider = new firebase.auth.GoogleAuthProvider();
-
-// Si user-ku u sii joogo logged-in ilaa uu gacanta ku riixo Logout
-// (LOCAL persistence waxay sii ogolaataa session-ka inta uu browser-ku xiran yahay/dib u furmo)
-auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(err => {
-    console.error('Persistence error:', err);
-});
-
 // ==================== STATE ====================
 let currentUser = null;
 let currentUserProfile = null;
@@ -106,11 +127,20 @@ let editorImageBase64 = null;
 let editorImageObj = null;
 let editorCanvasCtx = null;
 let editorTool = 'none';
+
+// MOTION SENSOR STATE
 let motionStepCount = 0;
 let isTrackingMotion = false;
 let lastAcc = { x: 0, y: 0, z: 0 };
 let stepCooldown = false;
-let stepThreshold = 10.5;
+let stepThreshold = 11.5; // Upper threshold for peak detection
+let autoSaveInterval = null;
+let syncedStepCount = 0; // Steps already synced to Firestore
+let accelBuffer = [];
+const BUFFER_SIZE = 10;
+let lastMouseY = 0;
+let mouseStepCooldown = false;
+
 let dbUsersCache = [];
 let dbGroupsCache = [];
 let globalMessagesCache = [];
@@ -124,8 +154,7 @@ let unsubDirectMessages = null;
 let calcFormData = null;
 let chatFontSize = 13;
 let currentFollowRequests = [];
-let lastMouseY = 0;
-let mouseStepCooldown = false;
+let lastStepDate = null;
 
 // ==================== UTILITIES ====================
 function showToast(msg, success = true) {
@@ -144,7 +173,6 @@ function showLoading(text = 'LOADING...') {
     const loadingText = document.getElementById('loadingText');
     if (loadingText) loadingText.textContent = text;
     if (overlay) { overlay.classList.remove('hidden'); overlay.style.opacity = '1'; }
-    // Auto-hide after 800ms si user-ka uu sugaan
     setTimeout(() => hideLoading(), 800);
 }
 
@@ -256,6 +284,8 @@ async function handleSignUp(e) {
             photoURL: null,
             steps: 0,
             weeklySteps: 0,
+            todaySteps: 0,
+            lastStepDate: null,
             createdAt: fv.serverTimestamp(),
             followers: [],
             following: [],
@@ -287,7 +317,6 @@ async function handleGoogleSignIn() {
         const snap = await userDocRef.get();
 
         if (!snap.exists) {
-            // User-kan cusub yahay - waa diiwaan gelin (signup automatic)
             let baseUsername = (user.email || 'user').split('@')[0].replace(/[^a-zA-Z0-9]/g, '');
             if (!baseUsername) baseUsername = 'user' + Math.floor(Math.random() * 10000);
             await userDocRef.set({
@@ -299,6 +328,8 @@ async function handleGoogleSignIn() {
                 authProvider: 'google',
                 steps: 0,
                 weeklySteps: 0,
+                todaySteps: 0,
+                lastStepDate: null,
                 createdAt: fv.serverTimestamp(),
                 followers: [],
                 following: [],
@@ -346,15 +377,10 @@ async function handleAdminLogin(e) {
 
 async function handleLogout() {
     try {
-        // Nadiifi inputs marka hore
-        const loginEmail = document.getElementById('loginEmail');
+        const loginUsername = document.getElementById('loginUsername');
         const loginPassword = document.getElementById('loginPassword');
-        const signupEmail = document.getElementById('signupEmail');
-        const signupPassword = document.getElementById('signupPassword');
-        if (loginEmail) loginEmail.value = '';
+        if (loginUsername) loginUsername.value = '';
         if (loginPassword) loginPassword.value = '';
-        if (signupEmail) signupEmail.value = '';
-        if (signupPassword) signupPassword.value = '';
         await auth.signOut();
         showToast('Waa la ka baxay!', true);
     } catch (err) {
@@ -367,10 +393,8 @@ auth.onAuthStateChanged(async user => {
     const splash = document.getElementById('splashScreen');
     if (user) {
         currentUser = user;
-        // Isla markaaba portal tus — ha suginin Firestore
         showAuthView(false);
         if (splash) splash.classList.add('hidden');
-        // Dibadeed load gareey xogta
         const snap = await db.collection('users').doc(user.uid).get();
         if (snap.exists) {
             currentUserProfile = snap.data();
@@ -383,6 +407,8 @@ auth.onAuthStateChanged(async user => {
         if (isAdmin) {
             document.getElementById('deskBtnAdmin').classList.remove('hidden');
         }
+        // Load today steps when user is authenticated
+        loadTodaySteps();
     } else {
         currentUser = null;
         currentUserProfile = null;
@@ -547,7 +573,6 @@ function renderMessages(messages) {
     });
     container.scrollTop = container.scrollHeight;
 
-    // Attach click handlers to bubbles
     container.querySelectorAll('.message-bubble').forEach((bubble, idx) => {
         bubble.addEventListener('click', () => {
             contextMenuIndex = idx;
@@ -566,14 +591,12 @@ function renderFriendsList() {
     if (!list) return;
     list.innerHTML = '';
 
-    // Global group
     const globalBtn = document.createElement('div');
     globalBtn.className = `flex items-center space-x-2 p-2 rounded-xl cursor-pointer transition ${activeChatType === 'group' && activeChatId === 'group' ? 'bg-brand/10 text-brand' : 'hover:bg-slate-100 dark:hover:bg-slate-800'}`;
     globalBtn.innerHTML = `<div class="w-8 h-8 rounded-full bg-brand text-white flex items-center justify-center text-xs font-bold">G</div><div><div class="text-xs font-bold">Group-ka Guud</div><div class="text-[10px] text-slate-400">Dhammaan</div></div>`;
     globalBtn.onclick = () => switchChat('group', 'group');
     list.appendChild(globalBtn);
 
-    // Groups
     if (dbGroupsCache.length > 0) {
         const groupsLabel = document.createElement('div');
         groupsLabel.className = 'text-[10px] text-slate-400 font-bold px-2 mt-2 mb-1 uppercase';
@@ -589,7 +612,6 @@ function renderFriendsList() {
         list.appendChild(div);
     });
 
-    // Saaxiibada (following) - kor
     const myFollowing = currentUserProfile ? (currentUserProfile.following || []) : [];
     const friends = dbUsersCache.filter(u => u.id !== currentUser.uid && myFollowing.includes(u.id));
     const others = dbUsersCache.filter(u => u.id !== currentUser.uid && !myFollowing.includes(u.id));
@@ -612,7 +634,6 @@ function renderFriendsList() {
         });
     }
 
-    // Isticmaalayaasha kale - hoos
     if (others.length > 0) {
         const othersLabel = document.createElement('div');
         othersLabel.className = 'text-[10px] text-slate-400 font-bold px-2 mt-3 mb-1 uppercase border-t border-slate-200 dark:border-slate-700 pt-2';
@@ -639,7 +660,6 @@ function switchChat(type, id) {
     document.getElementById('replyPreviewContainer').classList.add('hidden');
     if (unsubDirectMessages) { unsubDirectMessages(); unsubDirectMessages = null; }
 
-    // Mobile: hide users panel, show messages panel
     const usersPanel = document.getElementById('chatUsersPanel');
     const messagesPanel = document.getElementById('chatMessagesPanel');
     const isDesktop = window.innerWidth >= 1024;
@@ -958,7 +978,6 @@ function handleForward(index) {
     const modal = document.getElementById('forwardModal');
     const list = document.getElementById('forwardTargetsList');
     list.innerHTML = '';
-    // Add users
     dbUsersCache.forEach(u => {
         if (u.id === currentUser.uid) return;
         const div = document.createElement('div');
@@ -966,7 +985,6 @@ function handleForward(index) {
         div.innerHTML = `<input type="checkbox" class="accent-brand forward-target" data-id="${u.id}" data-type="direct"><span class="text-xs">${escapeHtml(u.displayName || u.username)}</span>`;
         list.appendChild(div);
     });
-    // Add groups
     dbGroupsCache.forEach(g => {
         const div = document.createElement('div');
         div.className = 'flex items-center space-x-2 p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg cursor-pointer';
@@ -1029,7 +1047,6 @@ function handleDeleteForMe(index) {
     const msg = activeChatType === 'group' ? globalMessagesCache[index] : directMessagesCache[index];
     if (!msg) return;
     hideMessageContextMenu();
-    // In a real app, we'd track deletedFor array. For now, just toast.
     showToast('Fariinta laga masaxay adiga!', true);
 }
 
@@ -1228,7 +1245,6 @@ function setupProfileDrawer() {
             const url = await uploadToSupabase(compressed, 'profilePics', currentUser.uid);
             await db.collection('users').doc(currentUser.uid).update({ photoURL: url });
             await currentUser.updateProfile({ photoURL: url });
-            // Isla markaaba update UI bilaa refresh
             currentUserProfile.photoURL = url;
             const navImg = document.getElementById('navProfileImg');
             const navInitial = document.getElementById('navProfileInitial');
@@ -1258,7 +1274,7 @@ function setupProfileDrawer() {
             updateProfileUI();
             showToast('Isbeddelka waa la kaydiyay!', true);
         } catch (err) {
-            showToast(friendlyError(e), false);
+            showToast(friendlyError(err), false);
         } finally {
             hideLoading();
         }
@@ -1290,7 +1306,6 @@ function switchTab(tabId) {
     } else if (tabId === 'tabChats') {
         const b = document.getElementById('navBtnChat'); if (b) { b.classList.add('text-brand'); b.classList.remove('text-slate-400'); }
         const d = document.getElementById('deskBtnChat'); if (d) { d.classList.add('bg-brand/10', 'text-brand'); d.classList.remove('text-slate-400'); }
-        // Mobile: show users panel, hide messages panel
         const isDesktop = window.innerWidth >= 1024;
         if (!isDesktop) {
             const usersPanel = document.getElementById('chatUsersPanel');
@@ -1490,7 +1505,7 @@ function setupVoiceRecording() {
     });
 }
 
-// ==================== MOTION SENSOR ====================
+// ==================== MOTION SENSOR (iOS/Android + Auto-save + localStorage) ====================
 function setupMotionSensor() {
     const startBtn = document.getElementById('startMotionBtn');
     const status = document.getElementById('sensorStatus');
@@ -1498,44 +1513,146 @@ function setupMotionSensor() {
     const kmEl = document.getElementById('liveKm');
     const calEl = document.getElementById('liveCalories');
     if (!startBtn) return;
-    startBtn.addEventListener('click', () => {
+
+    // Load today's steps when app starts
+    loadTodaySteps();
+
+    startBtn.addEventListener('click', async () => {
         if (!isTrackingMotion) {
-            if (window.DeviceMotionEvent) {
-                window.addEventListener('devicemotion', handleMotion);
-                isTrackingMotion = true;
-                status.classList.remove('hidden');
-                startBtn.innerHTML = '<i class="fa-solid fa-stop"></i><span>JOOJI SOCODKA</span>';
-                showToast('Dareemaha socodka waa la bilaabay!', true);
-            } else {
-                // Fallback to mouse motion for desktop testing
-                document.addEventListener('mousemove', handleMouseMotion);
-                isTrackingMotion = true;
-                status.classList.remove('hidden');
-                startBtn.innerHTML = '<i class="fa-solid fa-stop"></i><span>JOOJI SOCODKA</span>';
-                showToast('Mouse motion tracker waa la bilaabay (desktop test)!', true);
-            }
+            await startTracking();
         } else {
-            window.removeEventListener('devicemotion', handleMotion);
-            document.removeEventListener('mousemove', handleMouseMotion);
-            isTrackingMotion = false;
-            status.classList.add('hidden');
-            startBtn.innerHTML = '<i class="fa-solid fa-play"></i><span>BILOW SOCODKA (Real Sensor)</span>';
-            saveStepsToFirestore();
+            stopTracking();
         }
     });
 
-    function handleMotion(e) {
-        const acc = e.accelerationIncludingGravity;
-        if (!acc) return;
-        const x = acc.x || 0, y = acc.y || 0, z = acc.z || 0;
-        const magnitude = Math.sqrt(x * x + y * y + z * z);
-        if (!stepCooldown && Math.abs(magnitude - 9.8) > stepThreshold) {
-            motionStepCount++;
-            stepCooldown = true;
-            setTimeout(() => stepCooldown = false, 350);
-            updateMotionDisplay();
+    async function startTracking() {
+        // HTTPS check
+        if (window.location.protocol !== 'https:' && window.location.hostname !== 'localhost') {
+            showToast('Motion sensor wuxuu u baahan yahay HTTPS. Fadlan isticmaal HTTPS.', false);
+            return;
         }
-        lastAcc = { x, y, z };
+
+        // Check if user is logged in
+        if (!currentUser) {
+            showToast('Fadlan marka hore soo gal si aad tallaabooyinka u kaydiso!', false);
+            return;
+        }
+
+        let permissionGranted = false;
+
+        if ('DeviceMotionEvent' in window) {
+            // iOS 13+ requires explicit permission
+            if (typeof DeviceMotionEvent.requestPermission === 'function') {
+                try {
+                    const permission = await DeviceMotionEvent.requestPermission();
+                    permissionGranted = permission === 'granted';
+                    if (!permissionGranted) {
+                        showToast('Fadlan oggolow Motion & Orientation! Safari > Settings > Motion & Orientation Access.', false);
+                        return;
+                    }
+                } catch (err) {
+                    console.error('Permission error:', err);
+                    showToast('Kamarada/iskaan sensor-ka lama helin! Chrome isticmaal ama hubi settings-ka.', false);
+                    return;
+                }
+            } else {
+                // Android or older iOS
+                permissionGranted = true;
+            }
+        }
+
+        if (permissionGranted && 'DeviceMotionEvent' in window) {
+            window.addEventListener('devicemotion', handleDeviceMotion);
+            isTrackingMotion = true;
+            status.classList.remove('hidden');
+            status.innerHTML = '<i class="fa-solid fa-heart-pulse mr-1"></i> Dareemaha socodka waa firfircoonyahay. Telefoonkaaga jeebka ama gacanta ha ku taagin...';
+            startBtn.innerHTML = '<i class="fa-solid fa-stop"></i><span>JOOJI SOCODKA</span>';
+            startBtn.classList.remove('bg-brand', 'hover:bg-green-600');
+            startBtn.classList.add('bg-red-500', 'hover:bg-red-600');
+            showToast('Socodka waa la bilaabay! Socod dhab ah bilaaw.', true);
+            
+            // Start auto-save every 20 seconds
+            autoSaveInterval = setInterval(syncStepsToFirestore, 20000);
+            
+            // Reset buffer
+            accelBuffer = [];
+        } else if (!('DeviceMotionEvent' in window)) {
+            // Desktop fallback
+            showToast('Motion sensor ma jiro telefoonkan. Desktop test mode waa la bilaabay.', false);
+            document.addEventListener('mousemove', handleMouseMotion);
+            isTrackingMotion = true;
+            status.classList.remove('hidden');
+            status.innerHTML = '<i class="fa-solid fa-computer mr-1"></i> Desktop test mode: Mouse ku isticmaal';
+            startBtn.innerHTML = '<i class="fa-solid fa-stop"></i><span>JOOJI TEST-KA</span>';
+            startBtn.classList.remove('bg-brand', 'hover:bg-green-600');
+            startBtn.classList.add('bg-red-500', 'hover:bg-red-600');
+        }
+    }
+
+    function stopTracking() {
+        window.removeEventListener('devicemotion', handleDeviceMotion);
+        document.removeEventListener('mousemove', handleMouseMotion);
+        isTrackingMotion = false;
+        
+        if (autoSaveInterval) {
+            clearInterval(autoSaveInterval);
+            autoSaveInterval = null;
+        }
+        
+        status.classList.add('hidden');
+        startBtn.innerHTML = '<i class="fa-solid fa-play"></i><span>BILOW SOCODKA (Real Sensor)</span>';
+        startBtn.classList.add('bg-brand', 'hover:bg-green-600');
+        startBtn.classList.remove('bg-red-500', 'hover:bg-red-600');
+        
+        // Final sync to Firestore
+        syncStepsToFirestore();
+        showToast(`Waa la kaydiyay! ${motionStepCount} tallaabo maanta.`, true);
+    }
+
+    function handleDeviceMotion(e) {
+        // Try to get acceleration without gravity first (more accurate)
+        let acc = e.acceleration;
+        let x, y, z;
+        
+        if (acc && (acc.x !== null || acc.y !== null || acc.z !== null)) {
+            x = acc.x || 0;
+            y = acc.y || 0;
+            z = acc.z || 0;
+        } else {
+            // Fallback to accelerationIncludingGravity
+            const accG = e.accelerationIncludingGravity;
+            if (!accG) return;
+            x = accG.x || 0;
+            y = accG.y || 0;
+            z = accG.z || 0;
+        }
+
+        // Calculate magnitude of acceleration
+        const magnitude = Math.sqrt(x*x + y*y + z*z);
+        
+        // Add to buffer for smoothing
+        accelBuffer.push(magnitude);
+        if (accelBuffer.length > BUFFER_SIZE) accelBuffer.shift();
+        
+        // Calculate moving average
+        const avg = accelBuffer.reduce((a, b) => a + b, 0) / accelBuffer.length;
+        
+        // Step detection: detect peaks when magnitude exceeds gravity + threshold
+        // Average gravity is ~9.8, we look for peaks above 11.5 or below 8.5
+        const upperThreshold = 11.5;
+        const lowerThreshold = 8.0;
+        
+        if (!stepCooldown) {
+            // Check if we have a peak (above upper threshold and coming from below)
+            const prev = accelBuffer[accelBuffer.length - 2] || 9.8;
+            
+            if (avg > upperThreshold && prev <= avg) {
+                motionStepCount++;
+                stepCooldown = true;
+                setTimeout(() => { stepCooldown = false; }, 450); // 450ms min between steps (max ~130 steps/min)
+                updateMotionDisplay();
+            }
+        }
     }
 
     function handleMouseMotion(e) {
@@ -1551,37 +1668,100 @@ function setupMotionSensor() {
     }
 
     function updateMotionDisplay() {
-        stepsEl.textContent = motionStepCount;
+        stepsEl.textContent = motionStepCount.toLocaleString();
         const km = (motionStepCount * 0.000762).toFixed(2);
         kmEl.textContent = km;
         const calories = Math.round(motionStepCount * 0.04);
-        calEl.textContent = calories;
+        calEl.textContent = calories.toLocaleString();
+        
+        // Update localStorage for session resilience
+        localStorage.setItem('socodka_today_steps', motionStepCount);
+        localStorage.setItem('socodka_last_date', new Date().toISOString().split('T')[0]);
+    }
+}
+
+async function syncStepsToFirestore() {
+    if (!currentUser) return;
+    const newSteps = motionStepCount - syncedStepCount;
+    if (newSteps <= 0) return;
+
+    try {
+        const userRef = db.collection('users').doc(currentUser.uid);
+        const today = new Date().toISOString().split('T')[0];
+
+        await userRef.update({
+            steps: fv.increment(newSteps),
+            weeklySteps: fv.increment(newSteps),
+            todaySteps: motionStepCount,
+            lastStepDate: today
+        });
+
+        syncedStepCount = motionStepCount;
+    } catch (e) {
+        console.error('Sync steps error:', e);
+    }
+}
+
+async function loadTodaySteps() {
+    const saved = localStorage.getItem('socodka_today_steps');
+    const savedDate = localStorage.getItem('socodka_last_date');
+    const today = new Date().toISOString().split('T')[0];
+
+    if (saved && savedDate === today) {
+        motionStepCount = parseInt(saved) || 0;
+        syncedStepCount = motionStepCount;
+        updateMotionDisplayUI();
     }
 
-    async function saveStepsToFirestore() {
-        if (!currentUser || motionStepCount === 0) return;
-        try {
-            const userRef = db.collection('users').doc(currentUser.uid);
-            await userRef.update({
-                steps: fv.increment(motionStepCount),
-                weeklySteps: fv.increment(motionStepCount)
-            });
-            // Add to history
-            const historyEntry = {
-                date: new Date().toISOString().split('T')[0],
-                steps: motionStepCount,
-                km: parseFloat((motionStepCount * 0.000762).toFixed(2)),
-                calories: Math.round(motionStepCount * 0.04)
-            };
-            await userRef.update({
-                dailyHistory: fv.arrayUnion(historyEntry)
-            });
-            showToast(`${motionStepCount} tallaabo waa la kaydiyay!`, true);
-            motionStepCount = 0;
-        } catch (e) {
-            showToast(friendlyError(e), false);
+    if (!currentUser) return;
+
+    try {
+        const userRef = db.collection('users').doc(currentUser.uid);
+        const snap = await userRef.get();
+
+        if (snap.exists) {
+            const data = snap.data();
+            lastStepDate = data.lastStepDate || null;
+
+            if (lastStepDate !== today) {
+                // New day - reset
+                if (lastStepDate && data.todaySteps > 0) {
+                    const historyEntry = {
+                        date: lastStepDate,
+                        steps: data.todaySteps,
+                        km: parseFloat((data.todaySteps * 0.000762).toFixed(2)),
+                        calories: Math.round(data.todaySteps * 0.04)
+                    };
+                    await userRef.update({
+                        dailyHistory: fv.arrayUnion(historyEntry),
+                        todaySteps: 0,
+                        lastStepDate: today
+                    });
+                } else {
+                    await userRef.update({ todaySteps: 0, lastStepDate: today });
+                }
+                motionStepCount = 0;
+                syncedStepCount = 0;
+                updateMotionDisplayUI();
+            } else {
+                motionStepCount = data.todaySteps || 0;
+                syncedStepCount = motionStepCount;
+                updateMotionDisplayUI();
+            }
         }
+    } catch (e) {
+        console.error('Load today steps error:', e);
     }
+}
+
+function updateMotionDisplayUI() {
+    const stepsEl = document.getElementById('liveSteps');
+    const kmEl = document.getElementById('liveKm');
+    const calEl = document.getElementById('liveCalories');
+    if (!stepsEl) return;
+    stepsEl.textContent = motionStepCount.toLocaleString();
+    kmEl.textContent = (motionStepCount * 0.000762).toFixed(2);
+    calEl.textContent = Math.round(motionStepCount * 0.04).toLocaleString();
 }
 
 // ==================== HISTORY TOGGLE ====================
@@ -1602,13 +1782,16 @@ function renderUserHistory() {
     if (!tbody || !currentUserProfile) return;
     const history = currentUserProfile.dailyHistory || [];
     tbody.innerHTML = history.slice(-30).reverse().map(h => `
-        <tr>
-            <td class="py-2 text-xs">${h.date}</td>
-            <td class="py-2 text-xs font-bold">${h.steps}</td>
-            <td class="py-2 text-xs">${h.km}</td>
-            <td class="py-2 text-xs text-right">${h.calories}</td>
+        <tr class="border-b border-slate-100 dark:border-slate-800/40 hover:bg-slate-50 dark:hover:bg-slate-800/30 transition">
+            <td class="py-3 font-bold text-slate-800 dark:text-slate-100">${h.date}</td>
+            <td class="py-3 text-brand font-bold">${(h.steps || 0).toLocaleString()}</td>
+            <td class="py-3">${h.km || 0} km</td>
+            <td class="py-3 text-right text-red-400">${h.calories || 0} kcal</td>
         </tr>
     `).join('');
+    if (history.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" class="py-4 text-center text-xs text-slate-400">Ma jiraan taariikh hadda</td></tr>';
+    }
 }
 
 // ==================== CALCULATOR ====================
@@ -1670,7 +1853,6 @@ function calculatePredictions() {
     if (!calcFormData) return;
     const { gender, age, height, weight, foodDeficit, stepsGoal } = calcFormData;
     
-    // BMR calculation (Mifflin-St Jeor)
     let bmr;
     if (gender === 'Male') {
         bmr = (10 * weight) + (6.25 * height) - (5 * age) + 5;
@@ -1678,24 +1860,20 @@ function calculatePredictions() {
         bmr = (10 * weight) + (6.25 * height) - (5 * age) - 161;
     }
     
-    // TDEE with activity from steps
     const activityFactor = stepsGoal >= 10000 ? 1.725 : stepsGoal >= 6000 ? 1.55 : stepsGoal >= 4000 ? 1.375 : 1.2;
     const tdee = bmr * activityFactor;
     
-    // Daily calorie deficit
     const stepCalories = (stepsGoal * 0.04);
     const totalDailyDeficit = foodDeficit + stepCalories;
     const weeklyDeficit = totalDailyDeficit * 7;
     const weeklyLossKg = weeklyDeficit / 7700;
     
-    // Body fat % estimate (Deurenberg formula)
     const bmi = weight / ((height / 100) ** 2);
     let bodyFat = (1.20 * bmi) + (0.23 * age) - (10.8 * (gender === 'Male' ? 1 : 0)) - 5.4;
     if (gender === 'Female') bodyFat = (1.20 * bmi) + (0.23 * age) - 5.4 - 10.8;
     if (bodyFat < 5) bodyFat = 12;
     if (bodyFat > 50) bodyFat = 35;
     
-    // Stats display
     const statsDiv = document.getElementById('predictionStats');
     statsDiv.innerHTML = `
         <div class="bg-brand/10 p-4 rounded-xl text-center">
@@ -1715,7 +1893,6 @@ function calculatePredictions() {
         </div>
     `;
     
-    // 8-week table
     const tbody = document.getElementById('predictionTableBody');
     let currentWeight = weight;
     let currentFat = bodyFat;
@@ -1768,13 +1945,9 @@ function setupCamera() {
         video.classList.add('hidden');
         canvas.classList.remove('hidden');
         scanner.classList.add('hidden');
-        // Stop stream
         videoStream.getTracks().forEach(t => t.stop());
         videoStream = null;
-        
-        // Simulate body fat scan result
         showToast('Scan waa la dhammeystiray! Eeg natiijada.', true);
-        // Switch to output tab after capture
         document.getElementById('calcSubTabOutput').click();
     });
 }
@@ -1860,7 +2033,6 @@ function setupNavigation() {
     document.getElementById('deskBtnAdmin').addEventListener('click', () => switchTab('tabAdmin'));
     const mobileLogout = document.getElementById('logoutBtnMobile');
     if (mobileLogout) mobileLogout.addEventListener('click', handleLogout);
-    // Back button — messages ka ku noqo users panel-ka
     const backBtn = document.getElementById('backToUsersBtn');
     if (backBtn) backBtn.addEventListener('click', () => {
         const usersPanel = document.getElementById('chatUsersPanel');
@@ -1870,8 +2042,27 @@ function setupNavigation() {
     });
 }
 
+// ==================== BOOT APP ====================
+async function bootApp() {
+    try {
+        const res = await fetch('/api/firebase-config.mjs');
+        if (!res.ok) throw new Error('Config fetch failed: ' + res.status);
+        window.firebaseConfig = await res.json();
+    } catch (err) {
+        console.error('Khalad ayaa dhacay marka config-ka la soo raray:', err);
+        document.body.innerHTML = '<div style="color:white;text-align:center;padding:50px;font-family:sans-serif;">Khalad ayaa dhacay marka app-ka la furayo. Fadlan dib u isku day.</div>';
+        return;
+    }
+    const script = document.createElement('script');
+    script.src = 'index.js';
+    document.body.appendChild(script);
+}
+
 // ==================== WINDOW LOAD ====================
-(() => {
+(async () => {
+    const ok = await initApp();
+    if (!ok) return;
+
     updateThemeIcons();
     setupAuthForms();
     setupChatForm();
@@ -1893,7 +2084,6 @@ function setupNavigation() {
     setupAdminRefresh();
     setupNavigation();
     
-    // Check for saved theme
     if (localStorage.getItem('theme') === 'dark') {
         document.documentElement.classList.add('dark');
     } else if (localStorage.getItem('theme') === 'light') {
@@ -1901,7 +2091,6 @@ function setupNavigation() {
     }
 })();
 
-// Save theme on toggle
 const origToggle = document.getElementById('themeToggleAuth');
 const origTogglePortal = document.getElementById('themeTogglePortal');
 function saveTheme() {
@@ -1909,3 +2098,10 @@ function saveTheme() {
 }
 if (origToggle) origToggle.addEventListener('click', saveTheme);
 if (origTogglePortal) origTogglePortal.addEventListener('click', saveTheme);
+
+// Handle page unload - save any remaining steps
+window.addEventListener('beforeunload', () => {
+    if (isTrackingMotion && currentUser) {
+        syncStepsToFirestore();
+    }
+});

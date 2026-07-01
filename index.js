@@ -1,4 +1,27 @@
 console.log('INDEX.JS WUU SHAQEYNAYAA — TIJAABO');
+
+// ==================== GLOBAL ERROR HANDLER ====================
+function friendlyError(err) {
+    if (!err) return 'Wax khalad ah ayaa dhacay. Isku day mar kale.';
+    const msg = (err.message || err.code || String(err)).toLowerCase();
+    if (msg.includes('network') || msg.includes('offline') || msg.includes('unavailable')) return 'Internet-ka xiriirka ka eeg oo isku day mar kale.';
+    if (msg.includes('permission') || msg.includes('unauthorized') || msg.includes('unauthenticated')) return 'Fasax uma lihid falkan. Dib u soo gal.';
+    if (msg.includes('not-found') || msg.includes('no such')) return 'Xogta la doondooney lama helin.';
+    if (msg.includes('quota') || msg.includes('resource-exhausted')) return 'Adeeska hadda waa culus. Daqiiqad ka dib isku day.';
+    if (msg.includes('timeout') || msg.includes('deadline')) return 'Xiriirku waa gaabis. Isku day mar kale.';
+    if (msg.includes('upload') || msg.includes('storage')) return 'Faylka diridda way fashilantay. Cabbirka hubi oo isku day.';
+    if (msg.includes('failed-precondition') || msg.includes('index')) return 'Nidaamka waa la cusbooneysiinayaa. Daqiiqad ka dib isku day.';
+    return 'Wax khalad ah ayaa dhacay. Isku day mar kale.';
+}
+
+// Catch unhandled JS errors — ha u muuqan user-ka technical errors
+window.addEventListener('error', (e) => {
+    console.error('Global error:', e.error);
+});
+window.addEventListener('unhandledrejection', (e) => {
+    console.error('Unhandled promise:', e.reason);
+    e.preventDefault();
+});
 // ==================== FIREBASE CONFIG ====================
 // Ka akhriso xogta ku dhex jirta window-ka ee uu bootApp() keenay
 const firebaseConfig = window.firebaseConfig;
@@ -100,6 +123,8 @@ function showLoading(text = 'LOADING...') {
     const loadingText = document.getElementById('loadingText');
     if (loadingText) loadingText.textContent = text;
     if (overlay) { overlay.classList.remove('hidden'); overlay.style.opacity = '1'; }
+    // Auto-hide after 800ms si user-ka uu sugaan
+    setTimeout(() => hideLoading(), 800);
 }
 
 function hideLoading() {
@@ -267,7 +292,7 @@ async function handleGoogleSignIn() {
         if (err.code === 'auth/popup-closed-by-user') {
             showToast('Gmail login waa la joojiyay.', false);
         } else {
-            showToast('Gmail login way fashilantay: ' + err.message, false);
+            showToast(friendlyError(err), false);
         }
     } finally {
         hideLoading();
@@ -292,32 +317,38 @@ async function handleAdminLogin(e) {
             await auth.signOut();
         }
     } catch (err) {
-        showToast('Admin login fashilantay: ' + err.message, false);
+        showToast(friendlyError(err), false);
     } finally {
         hideLoading();
     }
 }
 
 async function handleLogout() {
-    showLoading('Ka baxaya...');
     try {
+        // Nadiifi inputs marka hore
+        const loginEmail = document.getElementById('loginEmail');
+        const loginPassword = document.getElementById('loginPassword');
+        const signupEmail = document.getElementById('signupEmail');
+        const signupPassword = document.getElementById('signupPassword');
+        if (loginEmail) loginEmail.value = '';
+        if (loginPassword) loginPassword.value = '';
+        if (signupEmail) signupEmail.value = '';
+        if (signupPassword) signupPassword.value = '';
         await auth.signOut();
-        isAdmin = false;
         showToast('Waa la ka baxay!', true);
     } catch (err) {
         showToast('Ka bixidda way fashilantay!', false);
-    } finally {
-        hideLoading();
     }
 }
 
 // ==================== AUTH STATE LISTENER ====================
 auth.onAuthStateChanged(async user => {
+    const splash = document.getElementById('splashScreen');
     if (user) {
         currentUser = user;
         // Isla markaaba portal tus — ha suginin Firestore
         showAuthView(false);
-        hideLoading();
+        if (splash) splash.classList.add('hidden');
         // Dibadeed load gareey xogta
         const snap = await db.collection('users').doc(user.uid).get();
         if (snap.exists) {
@@ -335,7 +366,7 @@ auth.onAuthStateChanged(async user => {
         currentUser = null;
         currentUserProfile = null;
         isAdmin = false;
-        hideLoading();
+        if (splash) splash.classList.add('hidden');
         showAuthView(true);
         detachListeners();
     }
@@ -513,7 +544,7 @@ function renderFriendsList() {
     const list = document.getElementById('friendsList');
     if (!list) return;
     list.innerHTML = '';
-    
+
     // Global group
     const globalBtn = document.createElement('div');
     globalBtn.className = `flex items-center space-x-2 p-2 rounded-xl cursor-pointer transition ${activeChatType === 'group' && activeChatId === 'group' ? 'bg-brand/10 text-brand' : 'hover:bg-slate-100 dark:hover:bg-slate-800'}`;
@@ -537,21 +568,47 @@ function renderFriendsList() {
         list.appendChild(div);
     });
 
-    // Users
-    const usersLabel = document.createElement('div');
-    usersLabel.className = 'text-[10px] text-slate-400 font-bold px-2 mt-2 mb-1 uppercase';
-    usersLabel.textContent = 'Saaxiibada';
-    list.appendChild(usersLabel);
+    // Saaxiibada (following) - kor
+    const myFollowing = currentUserProfile ? (currentUserProfile.following || []) : [];
+    const friends = dbUsersCache.filter(u => u.id !== currentUser.uid && myFollowing.includes(u.id));
+    const others = dbUsersCache.filter(u => u.id !== currentUser.uid && !myFollowing.includes(u.id));
 
-    dbUsersCache.forEach(u => {
-        if (u.id === currentUser.uid) return;
-        const isActive = activeChatType === 'direct' && activeChatId === u.id;
-        const div = document.createElement('div');
-        div.className = `flex items-center space-x-2 p-2 rounded-xl cursor-pointer transition ${isActive ? 'bg-brand/10 text-brand' : 'hover:bg-slate-100 dark:hover:bg-slate-800'}`;
-        div.innerHTML = `<div class="w-8 h-8 rounded-full bg-slate-300 dark:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center text-xs font-bold">${getInitials(u.displayName || u.username)}</div><div><div class="text-xs font-bold">${escapeHtml(u.displayName || u.username)}</div><div class="text-[10px] text-slate-400">${getCountryFlag(u.country)} ${u.country}</div></div>`;
-        div.onclick = () => switchChat('direct', u.id);
-        list.appendChild(div);
-    });
+    if (friends.length > 0) {
+        const friendsLabel = document.createElement('div');
+        friendsLabel.className = 'text-[10px] text-slate-400 font-bold px-2 mt-2 mb-1 uppercase';
+        friendsLabel.textContent = 'Saaxiibada';
+        list.appendChild(friendsLabel);
+        friends.forEach(u => {
+            const isActive = activeChatType === 'direct' && activeChatId === u.id;
+            const div = document.createElement('div');
+            div.className = `flex items-center space-x-2 p-2 rounded-xl cursor-pointer transition ${isActive ? 'bg-brand/10 text-brand' : 'hover:bg-slate-100 dark:hover:bg-slate-800'}`;
+            const avatar = u.photoURL 
+                ? `<img src="${u.photoURL}" class="w-8 h-8 rounded-full object-cover" />`
+                : `<div class="w-8 h-8 rounded-full bg-slate-300 dark:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center text-xs font-bold">${getInitials(u.displayName || u.username)}</div>`;
+            div.innerHTML = `${avatar}<div><div class="text-xs font-bold">${escapeHtml(u.displayName || u.username)}</div><div class="text-[10px] text-slate-400">${getCountryFlag(u.country)} ${u.country || ''}</div></div>`;
+            div.onclick = () => switchChat('direct', u.id);
+            list.appendChild(div);
+        });
+    }
+
+    // Isticmaalayaasha kale - hoos
+    if (others.length > 0) {
+        const othersLabel = document.createElement('div');
+        othersLabel.className = 'text-[10px] text-slate-400 font-bold px-2 mt-3 mb-1 uppercase border-t border-slate-200 dark:border-slate-700 pt-2';
+        othersLabel.textContent = 'Isticmaalayaasha Kale';
+        list.appendChild(othersLabel);
+        others.forEach(u => {
+            const isActive = activeChatType === 'direct' && activeChatId === u.id;
+            const div = document.createElement('div');
+            div.className = `flex items-center space-x-2 p-2 rounded-xl cursor-pointer transition opacity-60 ${isActive ? 'bg-brand/10 text-brand opacity-100' : 'hover:bg-slate-100 dark:hover:bg-slate-800 hover:opacity-100'}`;
+            const avatar = u.photoURL
+                ? `<img src="${u.photoURL}" class="w-8 h-8 rounded-full object-cover" />`
+                : `<div class="w-8 h-8 rounded-full bg-slate-300 dark:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center justify-center text-xs font-bold">${getInitials(u.displayName || u.username)}</div>`;
+            div.innerHTML = `${avatar}<div><div class="text-xs font-bold">${escapeHtml(u.displayName || u.username)}</div><div class="text-[10px] text-slate-400">${getCountryFlag(u.country)} ${u.country || ''}</div></div>`;
+            div.onclick = () => switchChat('direct', u.id);
+            list.appendChild(div);
+        });
+    }
 }
 
 function switchChat(type, id) {
@@ -703,7 +760,7 @@ function setupAdminChallengeForm() {
             await db.collection('challenges').doc('weekly').set({ title, goal: steps, updatedAt: fv.serverTimestamp() });
             showToast('Challenge waa la cusbooneysiiyay!', true);
         } catch (err) {
-            showToast('Cillad!', false);
+            showToast(friendlyError(err), false);
         } finally {
             hideLoading();
         }
@@ -749,7 +806,7 @@ async function sendMessage(e) {
         activeReplyIndex = null;
         document.getElementById('replyPreviewContainer').classList.add('hidden');
     } catch (err) {
-        showToast('Fariinta diridda way fashilantay!', false);
+        showToast(friendlyError(err), false);
     }
 }
 
@@ -779,7 +836,7 @@ async function sendImageMessage(base64) {
         }
         showToast('Sawirka waa la diray!', true);
     } catch (err) {
-        showToast('Sawirka diridda fashilantay!', false);
+        showToast(friendlyError(err), false);
     } finally {
         hideLoading();
         document.getElementById('imageEditorModal').classList.add('hidden');
@@ -812,7 +869,7 @@ async function sendVoiceMessage(blob) {
         }
         showToast('Codka waa la diray!', true);
     } catch (err) {
-        showToast('Codka diridda fashilantay!', false);
+        showToast(friendlyError(err), false);
     } finally {
         hideLoading();
     }
@@ -923,7 +980,7 @@ async function confirmForward() {
         }
         showToast('Fariinta waa la forward gareeyay!', true);
     } catch (e) {
-        showToast('Forward-gareynta fashilantay!', false);
+        showToast(friendlyError(e), false);
     } finally {
         hideLoading();
         hideForwardModal();
@@ -995,7 +1052,7 @@ async function acceptFollow(fromUid) {
         await db.collection('users').doc(fromUid).update({ following: fv.arrayUnion(currentUser.uid) });
         showToast('Waa la aqbalay!', true);
     } catch (e) {
-        showToast('Fashilantay!', false);
+        showToast(friendlyError(e), false);
     }
 }
 
@@ -1007,7 +1064,7 @@ async function rejectFollow(fromUid) {
         });
         showToast('Waa la diiday!', true);
     } catch (e) {
-        showToast('Fashilantay!', false);
+        showToast(friendlyError(e), false);
     }
 }
 
@@ -1147,7 +1204,7 @@ function setupProfileDrawer() {
             drawerImg.src = url; drawerImg.classList.remove('hidden'); drawerInitial.classList.add('hidden');
             showToast('Sawirka waa la cusbooneysiiyay!', true);
         } catch (err) {
-            showToast('Upload fashilantay!', false);
+            showToast(friendlyError(err), false);
         } finally {
             hideLoading();
         }
@@ -1167,7 +1224,7 @@ function setupProfileDrawer() {
             updateProfileUI();
             showToast('Isbeddelka waa la kaydiyay!', true);
         } catch (err) {
-            showToast('Kaydinta fashilantay!', false);
+            showToast(friendlyError(e), false);
         } finally {
             hideLoading();
         }
@@ -1480,7 +1537,7 @@ function setupMotionSensor() {
             showToast(`${motionStepCount} tallaabo waa la kaydiyay!`, true);
             motionStepCount = 0;
         } catch (e) {
-            showToast('Kaydinta fashilantay!', false);
+            showToast(friendlyError(e), false);
         }
     }
 }

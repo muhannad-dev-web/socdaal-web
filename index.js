@@ -129,7 +129,6 @@ let editorCanvasCtx = null;
 let editorTool = 'none';
 
 // MOTION SENSOR STATE
-let motionStepCount = 0;
 let isTrackingMotion = false;
 let lastAcc = { x: 0, y: 0, z: 0 };
 let stepCooldown = false;
@@ -1572,7 +1571,7 @@ function setupMotionSensor() {
             showToast('Socodka waa la bilaabay! Socod dhab ah bilaaw.', true);
             
             // Start auto-save every 20 seconds
-            autoSaveInterval = setInterval(syncStepsToFirestore, 20000);
+            autoSaveInterval = setInterval(saveStepsToFirestore, 20000);
             
             // Reset buffer
             accelBuffer = [];
@@ -1605,8 +1604,8 @@ function setupMotionSensor() {
         startBtn.classList.remove('bg-red-500', 'hover:bg-red-600');
         
         // Final sync to Firestore
-        syncStepsToFirestore();
-        showToast(`Waa la kaydiyay! ${motionStepCount} tallaabo maanta.`, true);
+        saveStepsToFirestore();
+        showToast(`Waa la kaydiyay! ${syncedStepCount} tallaabo maanta.`, true);
     }
 
     function handleDeviceMotion(e) {
@@ -1647,7 +1646,7 @@ function setupMotionSensor() {
             const prev = accelBuffer[accelBuffer.length - 2] || 9.8;
             
             if (avg > upperThreshold && prev <= avg) {
-                motionStepCount++;
+                syncedStepCount++;
                 stepCooldown = true;
                 setTimeout(() => { stepCooldown = false; }, 450); // 450ms min between steps (max ~130 steps/min)
                 updateMotionDisplay();
@@ -1658,7 +1657,7 @@ function setupMotionSensor() {
     function handleMouseMotion(e) {
         if (Math.abs(e.clientY - lastMouseY) > 50) {
             if (!mouseStepCooldown) {
-                motionStepCount++;
+                syncedStepCount++;
                 mouseStepCooldown = true;
                 setTimeout(() => mouseStepCooldown = false, 400);
                 updateMotionDisplay();
@@ -1668,37 +1667,42 @@ function setupMotionSensor() {
     }
 
     function updateMotionDisplay() {
-        stepsEl.textContent = motionStepCount.toLocaleString();
-        const km = (motionStepCount * 0.000762).toFixed(2);
+        stepsEl.textContent = syncedStepCount.toLocaleString();
+        const km = (syncedStepCount * 0.000762).toFixed(2);
         kmEl.textContent = km;
-        const calories = Math.round(motionStepCount * 0.04);
+        const calories = Math.round(syncedStepCount * 0.04);
         calEl.textContent = calories.toLocaleString();
         
         // Update localStorage for session resilience
-        localStorage.setItem('socodka_today_steps', motionStepCount);
+        localStorage.setItem('socodka_today_steps', syncedStepCount);
         localStorage.setItem('socodka_last_date', new Date().toISOString().split('T')[0]);
     }
 }
 
-async function syncStepsToFirestore() {
-    if (!currentUser) return;
-    const newSteps = motionStepCount - syncedStepCount;
-    if (newSteps <= 0) return;
-
+async function saveStepsToFirestore() {
+    if (!currentUser || syncedStepCount === 0) return;
     try {
         const userRef = db.collection('users').doc(currentUser.uid);
         const today = new Date().toISOString().split('T')[0];
-
         await userRef.update({
-            steps: fv.increment(newSteps),
-            weeklySteps: fv.increment(newSteps),
-            todaySteps: motionStepCount,
+            steps: fv.increment(syncedStepCount),
+            weeklySteps: fv.increment(syncedStepCount),
+            todaySteps: syncedStepCount,
             lastStepDate: today
         });
-
-        syncedStepCount = motionStepCount;
+        const historyEntry = {
+            date: today,
+            steps: syncedStepCount,
+            km: parseFloat((syncedStepCount * 0.000762).toFixed(2)),
+            calories: Math.round(syncedStepCount * 0.04)
+        };
+        await userRef.update({ dailyHistory: fv.arrayUnion(historyEntry) });
+        showToast(`${syncedStepCount} tallaabo waa la kaydiyay!`, true);
+        syncedStepCount = 0;
+        updateMotionDisplayUI();
+        localStorage.removeItem('socodka_today_steps');
     } catch (e) {
-        console.error('Sync steps error:', e);
+        showToast(friendlyError(e), false);
     }
 }
 
@@ -1708,8 +1712,8 @@ async function loadTodaySteps() {
     const today = new Date().toISOString().split('T')[0];
 
     if (saved && savedDate === today) {
-        motionStepCount = parseInt(saved) || 0;
-        syncedStepCount = motionStepCount;
+        syncedStepCount = parseInt(saved) || 0;
+        
         updateMotionDisplayUI();
     }
 
@@ -1740,12 +1744,11 @@ async function loadTodaySteps() {
                 } else {
                     await userRef.update({ todaySteps: 0, lastStepDate: today });
                 }
-                motionStepCount = 0;
                 syncedStepCount = 0;
                 updateMotionDisplayUI();
             } else {
-                motionStepCount = data.todaySteps || 0;
-                syncedStepCount = motionStepCount;
+                syncedStepCount = data.todaySteps || 0;
+                
                 updateMotionDisplayUI();
             }
         }
@@ -1759,9 +1762,9 @@ function updateMotionDisplayUI() {
     const kmEl = document.getElementById('liveKm');
     const calEl = document.getElementById('liveCalories');
     if (!stepsEl) return;
-    stepsEl.textContent = motionStepCount.toLocaleString();
-    kmEl.textContent = (motionStepCount * 0.000762).toFixed(2);
-    calEl.textContent = Math.round(motionStepCount * 0.04).toLocaleString();
+    stepsEl.textContent = syncedStepCount.toLocaleString();
+    kmEl.textContent = (syncedStepCount * 0.000762).toFixed(2);
+    calEl.textContent = Math.round(syncedStepCount * 0.04).toLocaleString();
 }
 
 // ==================== HISTORY TOGGLE ====================
@@ -2102,6 +2105,6 @@ if (origTogglePortal) origTogglePortal.addEventListener('click', saveTheme);
 // Handle page unload - save any remaining steps
 window.addEventListener('beforeunload', () => {
     if (isTrackingMotion && currentUser) {
-        syncStepsToFirestore();
+        saveStepsToFirestore();
     }
 });

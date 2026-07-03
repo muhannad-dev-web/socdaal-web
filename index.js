@@ -139,6 +139,8 @@ let accelBuffer = [];
 const BUFFER_SIZE = 10;
 let lastMouseY = 0;
 let mouseStepCooldown = false;
+let todayTotalSteps = 0; // Total steps for today (persists across pause/resume)
+let DAILY_STEP_GOAL = 10000; // Default daily step goal
 
 let dbUsersCache = [];
 let dbGroupsCache = [];
@@ -1489,7 +1491,7 @@ function setupMotionSensor() {
         if (!isTrackingMotion) {
             await startTracking();
         } else {
-            stopTracking();
+            await stopTracking();
         }
     });
 
@@ -1557,7 +1559,7 @@ function setupMotionSensor() {
         }
     }
 
-    function stopTracking() {
+    async function stopTracking() {
         window.removeEventListener('devicemotion', handleDeviceMotion);
         document.removeEventListener('mousemove', handleMouseMotion);
         isTrackingMotion = false;
@@ -1573,8 +1575,9 @@ function setupMotionSensor() {
         startBtn.classList.remove('bg-red-500', 'hover:bg-red-600');
         
         // Final sync to Firestore
-        saveStepsToFirestore();
-        showToast(`Waa la kaydiyay! ${syncedStepCount} tallaabo maanta.`, true);
+        const finalSteps = todayTotalSteps;
+        await saveStepsToFirestore();
+        showToast(`Waa la kaydiyay! ${finalSteps} tallaabo maanta.`, true);
     }
 
     function handleDeviceMotion(e) {
@@ -1616,6 +1619,7 @@ function setupMotionSensor() {
             
             if (avg > upperThreshold && prev <= avg) {
                 syncedStepCount++;
+                todayTotalSteps++;
                 stepCooldown = true;
                 setTimeout(() => { stepCooldown = false; }, 450); // 450ms min between steps (max ~130 steps/min)
                 updateMotionDisplay();
@@ -1627,6 +1631,7 @@ function setupMotionSensor() {
         if (Math.abs(e.clientY - lastMouseY) > 50) {
             if (!mouseStepCooldown) {
                 syncedStepCount++;
+                todayTotalSteps++;
                 mouseStepCooldown = true;
                 setTimeout(() => mouseStepCooldown = false, 400);
                 updateMotionDisplay();
@@ -1636,15 +1641,16 @@ function setupMotionSensor() {
     }
 
     function updateMotionDisplay() {
-        stepsEl.textContent = syncedStepCount.toLocaleString();
-        const km = (syncedStepCount * 0.000762).toFixed(2);
+        stepsEl.textContent = todayTotalSteps.toLocaleString();
+        const km = (todayTotalSteps * 0.000762).toFixed(2);
         kmEl.textContent = km;
-        const calories = Math.round(syncedStepCount * 0.04);
+        const calories = Math.round(todayTotalSteps * 0.04);
         calEl.textContent = calories.toLocaleString();
         
         // Update localStorage for session resilience
-        localStorage.setItem('socodka_today_steps', syncedStepCount);
+        localStorage.setItem('socodka_today_steps', todayTotalSteps);
         localStorage.setItem('socodka_last_date', new Date().toISOString().split('T')[0]);
+        updateStepProgressCircle();
     }
 }
 
@@ -1656,7 +1662,7 @@ async function saveStepsToFirestore() {
         await userRef.update({
             steps: fv.increment(syncedStepCount),
             weeklySteps: fv.increment(syncedStepCount),
-            todaySteps: syncedStepCount,
+            todaySteps: todayTotalSteps,
             lastStepDate: today
         });
         const historyEntry = {
@@ -1669,7 +1675,7 @@ async function saveStepsToFirestore() {
         showToast(`${syncedStepCount} tallaabo waa la kaydiyay!`, true);
         syncedStepCount = 0;
         updateMotionDisplayUI();
-        localStorage.removeItem('socodka_today_steps');
+        localStorage.setItem('socodka_today_steps', todayTotalSteps);
     } catch (e) {
         showToast(friendlyError(e), false);
     }
@@ -1681,8 +1687,8 @@ async function loadTodaySteps() {
     const today = new Date().toISOString().split('T')[0];
 
     if (saved && savedDate === today) {
-        syncedStepCount = parseInt(saved) || 0;
-        
+        todayTotalSteps = parseInt(saved) || 0;
+        syncedStepCount = 0;
         updateMotionDisplayUI();
     }
 
@@ -1716,8 +1722,8 @@ async function loadTodaySteps() {
                 syncedStepCount = 0;
                 updateMotionDisplayUI();
             } else {
-                syncedStepCount = data.todaySteps || 0;
-                
+                todayTotalSteps = Math.max(todayTotalSteps, data.todaySteps || 0);
+                syncedStepCount = 0;
                 updateMotionDisplayUI();
             }
         }
@@ -1731,9 +1737,48 @@ function updateMotionDisplayUI() {
     const kmEl = document.getElementById('liveKm');
     const calEl = document.getElementById('liveCalories');
     if (!stepsEl) return;
-    stepsEl.textContent = syncedStepCount.toLocaleString();
-    kmEl.textContent = (syncedStepCount * 0.000762).toFixed(2);
-    calEl.textContent = Math.round(syncedStepCount * 0.04).toLocaleString();
+    stepsEl.textContent = todayTotalSteps.toLocaleString();
+    kmEl.textContent = (todayTotalSteps * 0.000762).toFixed(2);
+    calEl.textContent = Math.round(todayTotalSteps * 0.04).toLocaleString();
+    updateStepProgressCircle();
+}
+
+function updateStepProgressCircle() {
+    let wrapper = document.getElementById('stepProgressWrapper');
+    if (!wrapper) {
+        const stepsEl = document.getElementById('liveSteps');
+        if (!stepsEl) return;
+        const container = stepsEl.parentElement;
+        if (!container) return;
+        wrapper = document.createElement('div');
+        wrapper.id = 'stepProgressWrapper';
+        wrapper.style.cssText = 'position:relative;display:inline-flex;align-items:center;justify-content:center;width:120px;height:120px;margin:8px auto;';
+        const svgNS = 'http://www.w3.org/2000/svg';
+        const svg = document.createElementNS(svgNS, 'svg');
+        svg.setAttribute('width', '120');
+        svg.setAttribute('height', '120');
+        svg.style.cssText = 'transform:rotate(-90deg);';
+        const r = 50;
+        const c = 2 * Math.PI * r;
+        svg.innerHTML = '<circle cx="60" cy="60" r="' + r + '" fill="none" stroke="#e0e0e0" stroke-width="10" /><circle id="stepProgressArc" cx="60" cy="60" r="' + r + '" fill="none" stroke="#4CAF50" stroke-width="10" stroke-linecap="round" stroke-dasharray="' + c + '" stroke-dashoffset="' + c + '" />';
+        const text = document.createElement('div');
+        text.id = 'stepProgressLabel';
+        text.style.cssText = 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);text-align:center;font-size:12px;';
+        wrapper.appendChild(svg);
+        wrapper.appendChild(text);
+        container.insertBefore(wrapper, stepsEl);
+    }
+    const r = 50;
+    const c = 2 * Math.PI * r;
+    const progress = Math.min(todayTotalSteps / DAILY_STEP_GOAL, 1);
+    const offset = c - (progress * c);
+    const arc = document.getElementById('stepProgressArc');
+    if (arc) arc.setAttribute('stroke-dashoffset', offset);
+    const label = document.getElementById('stepProgressLabel');
+    if (label) {
+        const remaining = Math.max(DAILY_STEP_GOAL - todayTotalSteps, 0);
+        label.innerHTML = '<span style="font-size:20px;font-weight:700;">' + todayTotalSteps.toLocaleString() + '</span><br><span style="font-size:10px;color:#666;">' + (remaining > 0 ? remaining.toLocaleString() + ' remaining' : 'Goal reached!') + '</span>';
+    }
 }
 
 // ==================== HISTORY TOGGLE ====================

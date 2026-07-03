@@ -387,37 +387,6 @@ async function handleLogout() {
     }
 }
 
-// ==================== AUTH STATE LISTENER ====================
-auth.onAuthStateChanged(async user => {
-    const splash = document.getElementById('splashScreen');
-    if (user) {
-        currentUser = user;
-        showAuthView(false);
-        if (splash) splash.classList.add('hidden');
-        const snap = await db.collection('users').doc(user.uid).get();
-        if (snap.exists) {
-            currentUserProfile = snap.data();
-            if (!currentUserProfile.role) currentUserProfile.role = 'user';
-            isAdmin = currentUserProfile.role === 'admin';
-        }
-        updateProfileUI();
-        listenToRealtimeData();
-        incrementSiteViews();
-        if (isAdmin) {
-            document.getElementById('deskBtnAdmin').classList.remove('hidden');
-        }
-        // Load today steps when user is authenticated
-        loadTodaySteps();
-    } else {
-        currentUser = null;
-        currentUserProfile = null;
-        isAdmin = false;
-        if (splash) splash.classList.add('hidden');
-        showAuthView(true);
-        detachListeners();
-    }
-});
-
 function showAuthView(show) {
     document.getElementById('authView').classList.toggle('hidden', !show);
     document.getElementById('portalView').classList.toggle('hidden', show);
@@ -2086,6 +2055,37 @@ async function bootApp() {
     setupChatZoom();
     setupAdminRefresh();
     setupNavigation();
+
+    // ==================== AUTH STATE LISTENER ====================
+    auth.onAuthStateChanged(async user => {
+        const splash = document.getElementById('splashScreen');
+        if (user) {
+            currentUser = user;
+            showAuthView(false);
+            if (splash) splash.classList.add('hidden');
+            const snap = await db.collection('users').doc(user.uid).get();
+            if (snap.exists) {
+                currentUserProfile = snap.data();
+                if (!currentUserProfile.role) currentUserProfile.role = 'user';
+                isAdmin = currentUserProfile.role === 'admin';
+            }
+            updateProfileUI();
+            listenToRealtimeData();
+            incrementSiteViews();
+            if (isAdmin) {
+                document.getElementById('deskBtnAdmin').classList.remove('hidden');
+            }
+            // Load today steps when user is authenticated
+            loadTodaySteps();
+        } else {
+            currentUser = null;
+            currentUserProfile = null;
+            isAdmin = false;
+            if (splash) splash.classList.add('hidden');
+            showAuthView(true);
+            detachListeners();
+        }
+    });
     
     if (localStorage.getItem('theme') === 'dark') {
         document.documentElement.classList.add('dark');

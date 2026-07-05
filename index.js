@@ -142,6 +142,84 @@ let mouseStepCooldown = false;
 let todayTotalSteps = 0; // Total steps for today (persists across pause/resume)
 let DAILY_STEP_GOAL = 10000; // Default daily step goal
 
+// ==================== USER-SPECIFIC localStorage HELPERS ====================
+function getStepKey(suffix) {
+    const uid = currentUser ? currentUser.uid : 'guest';
+    return 'socodka_' + suffix + '_' + uid;
+}
+function setStepLocal(keySuffix, value) {
+    localStorage.setItem(getStepKey(keySuffix), value);
+}
+function getStepLocal(keySuffix) {
+    return localStorage.getItem(getStepKey(keySuffix));
+}
+function removeStepLocal(keySuffix) {
+    localStorage.removeItem(getStepKey(keySuffix));
+}
+
+// ==================== WAKE LOCK ====================
+let wakeLock = null;
+async function requestWakeLock() {
+    if ('wakeLock' in navigator) {
+        try {
+            wakeLock = await navigator.wakeLock.request('screen');
+            wakeLock.addEventListener('release', () => {
+                console.log('Wake Lock released');
+            });
+            console.log('Wake Lock acquired');
+        } catch (err) {
+            console.error('Wake Lock error:', err);
+        }
+    }
+}
+function releaseWakeLock() {
+    if (wakeLock) {
+        wakeLock.release().then(() => { wakeLock = null; });
+    }
+}
+
+// ==================== PAGE VISIBILITY + BACKGROUND ESTIMATION ====================
+let hiddenAt = null;
+let savedStepsBeforeHide = 0;
+
+function handleVisibilityChange() {
+    if (document.hidden) {
+        if (isTrackingMotion) {
+            hiddenAt = Date.now();
+            savedStepsBeforeHide = todayTotalSteps;
+            setStepLocal('today_steps', todayTotalSteps);
+            setStepLocal('last_date', new Date().toISOString().split('T')[0]);
+            setStepLocal('tracking_active', 'true');
+            setStepLocal('hidden_at', hiddenAt.toString());
+            saveStepsToFirestore();
+        }
+    } else {
+        if (isTrackingMotion && hiddenAt) {
+            const now = Date.now();
+            const awayMs = now - hiddenAt;
+            const awayMinutes = awayMs / 60000;
+            if (awayMinutes > 0.5) {
+                const estimatedSteps = Math.round(awayMinutes * 80);
+                const reasonableMax = Math.round(awayMinutes * 130);
+                const reasonableSteps = Math.min(estimatedSteps, reasonableMax);
+                todayTotalSteps += reasonableSteps;
+                syncedStepCount += reasonableSteps;
+                showToast('Waxaa la xisaabiyay ~' + reasonableSteps + ' tallaabo inta aad maqan ahayd (' + Math.round(awayMinutes) + ' daqiiqo).', true);
+                updateMotionDisplay();
+                updateMotionDisplayUI();
+            }
+            hiddenAt = null;
+        }
+        removeStepLocal('tracking_active');
+        removeStepLocal('hidden_at');
+        if (isTrackingMotion && 'wakeLock' in navigator && !wakeLock) {
+            requestWakeLock();
+        }
+    }
+}
+document.addEventListener('visibilitychange', handleVisibilityChange);
+
+
 let dbUsersCache = [];
 let dbGroupsCache = [];
 let globalMessagesCache = [];
@@ -378,6 +456,18 @@ async function handleAdminLogin(e) {
 
 async function handleLogout() {
     try {
+        // Save any remaining steps before signing out
+        if (isTrackingMotion) {
+            await stopTracking();
+        } else if (syncedStepCount > 0) {
+            await saveStepsToFirestore();
+        }
+        // Ensure today's steps are saved to localStorage for next login
+        setStepLocal('today_steps', todayTotalSteps);
+        setStepLocal('last_date', new Date().toISOString().split('T')[0]);
+        removeStepLocal('tracking_active');
+        removeStepLocal('hidden_at');
+
         const loginUsername = document.getElementById('loginUsername');
         const loginPassword = document.getElementById('loginPassword');
         if (loginUsername) loginUsername.value = '';
@@ -1544,6 +1634,8 @@ function setupMotionSensor() {
             // Start auto-save every 20 seconds
             autoSaveInterval = setInterval(saveStepsToFirestore, 20000);
             
+            requestWakeLock();
+            
             // Reset buffer
             accelBuffer = [];
         } else if (!('DeviceMotionEvent' in window)) {
@@ -1573,6 +1665,11 @@ function setupMotionSensor() {
         startBtn.innerHTML = '<i class="fa-solid fa-play"></i><span>BILOW SOCODKA (Real Sensor)</span>';
         startBtn.classList.add('bg-brand', 'hover:bg-green-600');
         startBtn.classList.remove('bg-red-500', 'hover:bg-red-600');
+        
+        // Release wake lock and clear tracking flags
+        releaseWakeLock();
+        removeStepLocal('tracking_active');
+        removeStepLocal('hidden_at');
         
         // Final sync to Firestore
         const finalSteps = todayTotalSteps;
@@ -1648,8 +1745,8 @@ function setupMotionSensor() {
         calEl.textContent = calories.toLocaleString();
         
         // Update localStorage for session resilience
-        localStorage.setItem('socodka_today_steps', todayTotalSteps);
-        localStorage.setItem('socodka_last_date', new Date().toISOString().split('T')[0]);
+        setStepLocal('today_steps', todayTotalSteps);
+        setStepLocal('last_date', new Date().toISOString().split('T')[0]);
         updateStepProgressCircle();
     }
 }
@@ -1675,21 +1772,82 @@ async function saveStepsToFirestore() {
         showToast(`${syncedStepCount} tallaabo waa la kaydiyay!`, true);
         syncedStepCount = 0;
         updateMotionDisplayUI();
-        localStorage.setItem('socodka_today_steps', todayTotalSteps);
+        setStepLocal('today_steps', todayTotalSteps);
     } catch (e) {
         showToast(friendlyError(e), false);
     }
 }
 
+function promptAwaySteps(awayMinutes, reasonableSteps) {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('awayStepsModal');
+        const msg = document.getElementById('awayStepsMessage');
+        const yesBtn = document.getElementById('confirmAwayStepsBtn');
+        const noBtn = document.getElementById('cancelAwayStepsBtn');
+        if (!modal || !msg || !yesBtn || !noBtn) {
+            resolve(false);
+            return;
+        }
+        msg.textContent = 'Waxaad maqan tahay ' + Math.round(awayMinutes) + ' daqiiqo. Ma waxaad socotay? (~' + reasonableSteps + ' tallaabo ayaa la xisaabiyay haddii aad socotay.)';
+        modal.classList.remove('hidden');
+
+        function cleanup() {
+            modal.classList.add('hidden');
+            yesBtn.removeEventListener('click', onYes);
+            noBtn.removeEventListener('click', onNo);
+        }
+
+        function onYes() {
+            cleanup();
+            resolve(true);
+        }
+
+        function onNo() {
+            cleanup();
+            resolve(false);
+        }
+
+        yesBtn.addEventListener('click', onYes);
+        noBtn.addEventListener('click', onNo);
+    });
+}
+
 async function loadTodaySteps() {
-    const saved = localStorage.getItem('socodka_today_steps');
-    const savedDate = localStorage.getItem('socodka_last_date');
+    const saved = getStepLocal('today_steps');
+    const savedDate = getStepLocal('last_date');
     const today = new Date().toISOString().split('T')[0];
 
+    const wasTracking = getStepLocal('tracking_active') === 'true';
+    const hiddenAtStr = getStepLocal('hidden_at');
+    
     if (saved && savedDate === today) {
         todayTotalSteps = parseInt(saved) || 0;
         syncedStepCount = 0;
         updateMotionDisplayUI();
+    }
+    
+    if (wasTracking && hiddenAtStr) {
+        const hiddenAt = parseInt(hiddenAtStr);
+        const now = Date.now();
+        const awayMs = now - hiddenAt;
+        const awayMinutes = awayMs / 60000;
+        if (awayMinutes > 0.5) {
+            const estimatedSteps = Math.round(awayMinutes * 80);
+            const reasonableMax = Math.round(awayMinutes * 130);
+            const reasonableSteps = Math.min(estimatedSteps, reasonableMax);
+            const userWasWalking = await promptAwaySteps(awayMinutes, reasonableSteps);
+            if (userWasWalking) {
+                todayTotalSteps += reasonableSteps;
+                syncedStepCount += reasonableSteps;
+                showToast('Waxaa la xisaabiyay ~' + reasonableSteps + ' tallaabo inta aad maqan ahayd (' + Math.round(awayMinutes) + ' daqiiqo).', true);
+                updateMotionDisplay();
+                updateMotionDisplayUI();
+            } else {
+                showToast('Tallaabooyin lagu darin maanta.', false);
+            }
+        }
+        removeStepLocal('tracking_active');
+        removeStepLocal('hidden_at');
     }
 
     if (!currentUser) return;
@@ -2129,6 +2287,12 @@ async function bootApp() {
             if (splash) splash.classList.add('hidden');
             showAuthView(true);
             detachListeners();
+            todayTotalSteps = 0;
+            syncedStepCount = 0;
+            updateMotionDisplayUI();
+            if (isTrackingMotion) {
+                stopTracking();
+            }
         }
     });
     
@@ -2150,6 +2314,19 @@ if (origTogglePortal) origTogglePortal.addEventListener('click', saveTheme);
 // Handle page unload - save any remaining steps
 window.addEventListener('beforeunload', () => {
     if (isTrackingMotion && currentUser) {
+        setStepLocal('tracking_active', 'true');
+        setStepLocal('hidden_at', Date.now().toString());
+        setStepLocal('today_steps', todayTotalSteps);
+        setStepLocal('last_date', new Date().toISOString().split('T')[0]);
         saveStepsToFirestore();
     }
 });
+
+// ==================== SERVICE WORKER REGISTRATION ====================
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').then(reg => {
+        console.log('Service Worker registered:', reg.scope);
+    }).catch(err => {
+        console.error('Service Worker registration failed:', err);
+    });
+}
